@@ -72,6 +72,8 @@ PACMAN_PKGS=(
   neovim-qt
   # Utilidades de escritorio
   ffmpegthumbnailer
+  jq
+  chafa
   keyd
   libappindicator-gtk3
   localsend
