@@ -266,7 +266,7 @@ fi
 if command -v chafa >/dev/null 2>&1; then
   cols="\${FZF_PREVIEW_COLUMNS:-80}"
   lines="\${FZF_PREVIEW_LINES:-24}"
-  chafa --format=symbols --size="\${cols}x\${lines}" "\$f"
+  chafa --size="\${cols}x\${lines}" "\$f"
 else
   echo "chafa no está instalado (sudo pacman -S chafa)"
   echo ""
