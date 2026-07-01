@@ -71,6 +71,7 @@ PACMAN_PKGS=(
   neovim
   neovim-qt
   # Utilidades de escritorio
+  ffmpegthumbnailer
   keyd
   libappindicator-gtk3
   localsend
@@ -164,7 +165,7 @@ pacman -S --noconfirm --needed base-devel git
 
 # Regla temporal en sudoers para que makepkg y paru no pidan contraseña
 SUDOERS_TMP="/etc/sudoers.d/99-aur-install"
-echo "$REAL_USER ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_TMP"
+echo "$REAL_USER ALL=(ALL) NOPASSWD: ALL" >"$SUDOERS_TMP"
 chmod 440 "$SUDOERS_TMP"
 
 PARU_TMP=$(mktemp -d)
@@ -211,7 +212,7 @@ pacman -S --noconfirm --needed qt6-svg qt6-virtualkeyboard qt6-multimedia-ffmpeg
 
 # Regla temporal de sudoers para instalación silenciosa del tema AUR
 SUDOERS_TMP2="/etc/sudoers.d/98-sddm-theme"
-echo "$REAL_USER ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_TMP2"
+echo "$REAL_USER ALL=(ALL) NOPASSWD: ALL" >"$SUDOERS_TMP2"
 chmod 440 "$SUDOERS_TMP2"
 
 # Instalar desde AUR con paru como usuario real
@@ -226,7 +227,7 @@ SDDM_CONF="/etc/sddm.conf"
 
 echo "📝 Configurando $SDDM_CONF..."
 
-cat > "$SDDM_CONF" <<'EOF'
+cat >"$SDDM_CONF" <<'EOF'
 [General]
 InputMethod=qtvirtualkeyboard
 GreeterEnvironment=QML2_IMPORT_PATH=/usr/share/sddm/themes/silent/components/,QT_IM_MODULE=qtvirtualkeyboard
@@ -294,7 +295,7 @@ echo "⌨️  Configurando keyd..."
 
 mkdir -p /etc/keyd
 
-cat > /etc/keyd/default.conf <<'EOF'
+cat >/etc/keyd/default.conf <<'EOF'
 # keyd config
 # /etc/keyd/default.conf
 [ids]
@@ -365,8 +366,8 @@ else
     fi
   }
 
-  restore_pam "pam-sudo"   "/etc/pam.d/sudo"
-  restore_pam "pam-sddm"   "/etc/pam.d/sddm"
+  restore_pam "pam-sudo" "/etc/pam.d/sudo"
+  restore_pam "pam-sddm" "/etc/pam.d/sddm"
   restore_pam "pam-polkit" "/etc/pam.d/polkit-gnome-authentication-agent-1"
 
   echo "✅ Configuraciones restauradas correctamente."

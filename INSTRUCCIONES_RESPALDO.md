@@ -1,5 +1,11 @@
 # 📦 Instrucciones de respaldo para el instalador de Hyprland
 
+
+git clone https://github.com/Jiheygr/backup-hyprland-test.git
+cd backup-hyprland-test
+bash instalar_hyprland.sh
+
+
 El script busca una carpeta llamada `respaldo` en tu carpeta de usuario (`~/respaldo/`) y copia todo su contenido a `~/.config/`, sobreescribiendo lo que ya exista. Aquí te explico cómo preparar ese respaldo antes de ejecutar el instalador.
 
 ---
