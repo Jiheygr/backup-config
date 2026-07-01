@@ -1,0 +1,24 @@
+#!/bin/bash
+echo "==> Updating system..."
+pacman -Syu --noconfirm
+
+echo ""
+echo "==> Removing orphaned packages..."
+orphans=$(pacman -Qdtq)
+if [[ -z "$orphans" ]]; then
+    echo "No orphaned packages found."
+else
+    echo "$orphans"
+    read -r -p "Remove these packages? (y/n): " confirm
+    [[ "$confirm" == "y" ]] && pacman -Rns $orphans --noconfirm
+fi
+
+echo ""
+echo "==> Cleaning package cache..."
+rm -rf /var/cache/pacman/pkg/download-*
+paccache -r
+
+echo ""
+echo "==> Done!"
+sleep 2
+kill $PPID

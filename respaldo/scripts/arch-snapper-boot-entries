@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# ruta: /usr/local/bin/snapper-boot-entries
+set -euo pipefail
+
+ENTRIES_DIR="/boot/loader/entries"
+CONFIG="root"
+
+# Opciones del kernel (edítalas si quieres)
+OPTIONS="rw zswap.enabled=0 rootfstype=btrfs loglevel=3 quiet splash"
+
+# Kernel e initramfs (Arch puro - kernel zen)
+KERNEL="vmlinuz-linux-zen"
+INITRAMFS="initramfs-linux-zen.img"
+
+# Detectar UUID automáticamente (en vez de hardcodearlo)
+UUID=$(findmnt -no UUID /)
+
+# Detectar microcódigo
+MICROCODE=""
+if [[ -f /boot/intel-ucode.img ]]; then
+    MICROCODE="intel-ucode.img"
+elif [[ -f /boot/amd-ucode.img ]]; then
+    MICROCODE="amd-ucode.img"
+fi
+
+# Limpiar entradas antiguas
+rm -f "${ENTRIES_DIR}"/arch-snapshot-*.conf
+
+# Crear entradas para los últimos 5 snapshots (excluyendo el #0 "current", que no es un snapshot real)
+snapper -c "$CONFIG" list 2>/dev/null |
+awk '/^[[:space:]]*[0-9]+/ {print $1, $5}' |
+awk '$1 != 0' |
+tail -5 |
+while read -r NUM DATE; do
+
+    SNAP_PATH="@/.snapshots/${NUM}/snapshot"
+
+    {
+        echo "title   Arch Linux Zen - Snapshot #${NUM} ${DATE}"
+        echo "linux   /${KERNEL}"
+
+        [[ -n "$MICROCODE" ]] && echo "initrd  /${MICROCODE}"
+
+        echo "initrd  /${INITRAMFS}"
+        echo "options root=UUID=${UUID} rootflags=subvol=${SNAP_PATH} ${OPTIONS}"
+        echo "sort-key 04-snapshot-${NUM}"
+    } > "${ENTRIES_DIR}/arch-snapshot-${NUM}.conf"
+
+done
+
+echo
+echo "Entradas creadas:"
+ls "${ENTRIES_DIR}"/arch-snapshot-*.conf 2>/dev/null

@@ -1,0 +1,22 @@
+{
+  "mpvSocket": "/tmp/mpv-socket",
+  "wallpapersFolder": "/home/jihey/Pictures/Wallpapers",
+  "profile": "default",
+  "fillMode": "fit",
+  "thumbCacheReady": true,
+  "currentWallpaper": "/home/jihey/Pictures/Wallpapers/2b-sword-flowers-nier-automata-moewalls-com.mp4",
+  "isPlaying": true,
+  "active": true,
+  "hardwareAcceleration": false,
+  "automation": false,
+  "automationMode": "random",
+  "automationTime": 300,
+  "oldWallpapers": {
+    "eDP-1": {
+      "light": "/home/jihey/.cache/noctalia/images/wallpapers/thumbnails/mpvpaper/2b-sword-flowers-nier-automata-moewalls-com.mp4.bmp",
+      "dark": "/home/jihey/.cache/noctalia/images/wallpapers/thumbnails/mpvpaper/2b-sword-flowers-nier-automata-moewalls-com.mp4.bmp"
+    }
+  },
+  "isMuted": true
+}
+
