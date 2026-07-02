@@ -250,6 +250,17 @@ systemctl enable --now firewalld
 systemctl enable --now avahi-daemon
 systemctl enable sddm # No --now: aún estamos en TTY/script, no lanzar el display manager ahora
 
+# Configurar el firewall de forma silenciosa
+
+if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+  firewall-cmd --add-port=53317/udp --permanent >/dev/null 2>&1 || true
+  firewall-cmd --reload >/dev/null 2>&1 || true
+fi
+
+if command -v ufw >/dev/null 2>&1; then
+  ufw allow 53317/udp >/dev/null 2>&1 || true
+fi
+
 echo "✅ Servicios habilitados."
 
 # -----------------------------
