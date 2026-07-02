@@ -72,6 +72,7 @@ PACMAN_PKGS=(
   neovim-qt
   # Utilidades de escritorio
   ffmpegthumbnailer
+  gvfs
   jq
   chafa
   keyd
