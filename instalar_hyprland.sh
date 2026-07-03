@@ -116,6 +116,7 @@ PACMAN_PKGS=(
   proton-vpn-gtk-app
   gpu-screen-recorder
   cava
+  chafa
   qt6ct
   gsettings-qt6
   gnome-firmware
@@ -247,6 +248,16 @@ systemctl enable --now firewalld
 systemctl enable --now avahi-daemon
 systemctl enable sddm # No --now: aún estamos en TTY/script, no lanzar el display manager ahora
 
+# Abrir puerto 53317/udp (Localsend) de forma silenciosa, según el firewall disponible
+if command -v firewall-cmd &>/dev/null; then
+  firewall-cmd --add-port=53317/udp --permanent &>/dev/null
+  firewall-cmd --reload &>/dev/null
+fi
+
+if command -v ufw &>/dev/null; then
+  ufw allow 53317/udp &>/dev/null
+fi
+
 echo "✅ Servicios habilitados."
 
 # -----------------------------
@@ -271,7 +282,8 @@ else
 fi
 
 # Copiar .zshrc desde respaldo si existe, si no usar el generado
-ZSHRC_BACKUP="$USER_HOME/respaldo/.zshrc"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ZSHRC_BACKUP="$SCRIPT_DIR/respaldo/.zshrc"
 if [ -f "$ZSHRC_BACKUP" ]; then
   echo "📝 Copiando .zshrc desde respaldo..."
   cp "$ZSHRC_BACKUP" "$ZSHRC"
@@ -315,7 +327,8 @@ echo "✅ keyd configurado y habilitado."
 # -----------------------------
 echo "📂 Restaurando configuraciones desde $USER_HOME/respaldo..."
 
-BACKUP_DIR="$USER_HOME/respaldo"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKUP_DIR="$SCRIPT_DIR/respaldo"
 CONFIG_DIR="$USER_HOME/.config"
 
 if [ ! -d "$BACKUP_DIR" ]; then
