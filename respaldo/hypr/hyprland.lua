@@ -209,6 +209,7 @@ hl.bind(mainMod .. " + Q", hl.dsp.window.close())
 hl.bind(mainMod .. " + C", hl.dsp.exec_cmd("nvim-qt"))
 hl.bind(mainMod .. " + A", hl.dsp.exec_cmd("pamac-manager"))
 hl.bind(mainMod .. " + H", hl.dsp.exec_cmd("heroic"))
+hl.bind(mainMod .. " + D", hl.dsp.exec_cmd("discord"))
 hl.bind(mainMod .. " + E", hl.dsp.exec_cmd(fileManager))
 hl.bind(mainMod .. " + CTRL + E", hl.dsp.exec_cmd("kitty --class editconfig -e editconfig"))
 hl.bind(mainMod .. " + SHIFT + S", hl.dsp.exec_cmd("kitty -e gestionar-sddm.sh"))
@@ -234,6 +235,7 @@ hl.bind(mainMod .. " + G", hl.dsp.exec_cmd("gtk-launch brave-mjoklplbddabcmpepno
 hl.bind(mainMod .. " + SHIFT + P", hl.dsp.exec_cmd("gtk-launch brave-pacgdjiidkfdhilcljkeebfoklekebig-Default")) -- Proton
 hl.bind(mainMod .. " + Delete", hl.dsp.exec_cmd("qs -c noctalia-shell ipc call sessionMenu toggle"))
 hl.bind(mainMod .. " + W", hl.dsp.exec_cmd("qs -c noctalia-shell ipc call plugin togglePanel mpvpaper"))
+hl.bind(mainMod .. " + L", hl.dsp.exec_cmd("hyprctl dispatch 'hl.dsp.exit()'"))
 
 -- Move focus
 hl.bind(mainMod .. " + left", hl.dsp.focus({ direction = "left" }))
