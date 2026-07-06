@@ -112,7 +112,7 @@ PACMAN_PKGS=(
   fastfetch
   discord
   brave-origin-bin
-  pamac-aur
+  pamac
   proton-vpn-gtk-app
   gpu-screen-recorder
   cava
