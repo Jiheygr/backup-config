@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# ruta: /usr/local/bin/snapper-boot-entries
 set -euo pipefail
 
 ENTRIES_DIR="/boot/loader/entries"
@@ -8,12 +7,18 @@ CONFIG="root"
 # Opciones del kernel (edítalas si quieres)
 OPTIONS="rw zswap.enabled=0 rootfstype=btrfs loglevel=3 quiet splash"
 
-# Kernel e initramfs (Arch puro - kernel zen)
-KERNEL="vmlinuz-linux-zen"
-INITRAMFS="initramfs-linux-zen.img"
-
-# Detectar UUID automáticamente (en vez de hardcodearlo)
+# Detectar UUID automáticamente
 UUID=$(findmnt -no UUID /)
+
+# Detectar TODOS los kernels instalados (no solo el primero que encuentre).
+# Así, si tenés varios (linux, linux-zen, linux-cachyos, etc.) o cambiás de
+# uno a otro, las entradas de snapshot siguen funcionando para todos.
+mapfile -t KERNELS < <(find /boot -maxdepth 1 -name 'vmlinuz-*' -printf '%f\n' | sort)
+
+if [[ ${#KERNELS[@]} -eq 0 ]]; then
+    echo "❌ No se encontró ningún kernel (vmlinuz-*) en /boot" >&2
+    exit 1
+fi
 
 # Detectar microcódigo
 MICROCODE=""
@@ -24,30 +29,43 @@ elif [[ -f /boot/amd-ucode.img ]]; then
 fi
 
 # Limpiar entradas antiguas
-rm -f "${ENTRIES_DIR}"/arch-snapshot-*.conf
+rm -f "${ENTRIES_DIR}"/snapshot-*.conf
 
-# Crear entradas para los últimos 5 snapshots (excluyendo el #0 "current", que no es un snapshot real)
-snapper -c "$CONFIG" list 2>/dev/null |
-awk '/^[[:space:]]*[0-9]+/ {print $1, $5}' |
-awk '$1 != 0' |
-tail -5 |
-while read -r NUM DATE; do
+# Últimos 5 snapshots (excluyendo el #0 "current", que no es un snapshot real)
+mapfile -t SNAPSHOTS < <(
+    snapper -c "$CONFIG" list |
+    awk '/^[[:space:]]*[0-9]+/ {print $1}' |
+    awk '$1 != 0' |
+    tail -5
+)
 
+for NUM in "${SNAPSHOTS[@]}"; do
     SNAP_PATH="@/.snapshots/${NUM}/snapshot"
 
-    {
-        echo "title   Arch Linux Zen - Snapshot #${NUM} ${DATE}"
-        echo "linux   /${KERNEL}"
+    for KERNEL in "${KERNELS[@]}"; do
+        SUFFIX="${KERNEL#vmlinuz-}"
+        INITRAMFS="initramfs-${SUFFIX}.img"
 
-        [[ -n "$MICROCODE" ]] && echo "initrd  /${MICROCODE}"
+        # Si a este kernel le falta el initramfs, lo saltamos (evita entradas rotas)
+        if [[ ! -f "/boot/${INITRAMFS}" ]]; then
+            echo "⚠️  Salteando ${KERNEL}: no existe /boot/${INITRAMFS}" >&2
+            continue
+        fi
 
-        echo "initrd  /${INITRAMFS}"
-        echo "options root=UUID=${UUID} rootflags=subvol=${SNAP_PATH} ${OPTIONS}"
-        echo "sort-key 04-snapshot-${NUM}"
-    } > "${ENTRIES_DIR}/arch-snapshot-${NUM}.conf"
+        {
+            echo "title   CachyOS Snapshot #${NUM} (${SUFFIX})"
+            echo "linux   /${KERNEL}"
 
+            [[ -n "$MICROCODE" ]] && echo "initrd  /${MICROCODE}"
+
+            echo "initrd  /${INITRAMFS}"
+            echo "options root=UUID=${UUID} rootflags=subvol=${SNAP_PATH} ${OPTIONS}"
+            echo "sort-key b-snapshot-${NUM}-${SUFFIX}"
+        } > "${ENTRIES_DIR}/snapshot-${NUM}-${SUFFIX}.conf"
+    done
 done
 
 echo
+echo "Kernels detectados: ${KERNELS[*]}"
 echo "Entradas creadas:"
-ls "${ENTRIES_DIR}"/arch-snapshot-*.conf 2>/dev/null
+ls "${ENTRIES_DIR}"/snapshot-*.conf
