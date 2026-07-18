@@ -381,3 +381,6 @@ hl.window_rule({
 	move = "20 monitor_h-120",
 	float = true,
 })
+-- This loads Noctalia-generated Hyprland colors
+local home = os.getenv("HOME")
+dofile(home .. "/.config/hypr/noctalia/noctalia-colors.lua")
