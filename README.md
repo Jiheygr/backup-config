@@ -1,1 +1,1 @@
-# backup-hyprland
+# backup-config
