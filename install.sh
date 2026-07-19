@@ -123,12 +123,112 @@ section() {
 }
 
 # -----------------------------
+# Detección de consola básica (TTY sin terminal gráfica)
+# -----------------------------
+# En la consola cruda de Arch (antes de tener un WM/terminal gráfica) la
+# fuente no tiene glifos para emoji ni para los bordes redondeados que usa
+# gum, y su interfaz interactiva (bubbletea) puede directamente no
+# renderizar bien ahí. Se detecta y se usa un menú numerado con `read`
+# plano en su lugar, que siempre funciona en cualquier TTY.
+IS_TTY_CONSOLE=false
+[[ "$TERM" == "linux" ]] && IS_TTY_CONSOLE=true
+
+# Saca los emoji conocidos que usa el script (lista fija, no rangos
+# Unicode, para no depender de herramientas externas tipo perl/python).
+strip_emoji() {
+  sed -e 's/🔊//g; s/🤫//g; s/🌊//g; s/🌀//g; s/🟪//g; s/📦//g; s/✅//g; s/❌//g;
+          s/🧹//g; s/📂//g; s/🎁//g; s/🔍//g; s/🖥️//g; s/📸//g; s/🎮//g;
+          s/💬//g; s/🐚//g; s/🔐//g; s/🗂️//g; s/🎨//g; s/🐧//g; s/🔎//g' <<<"$1" \
+    | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
+}
+
+# Selección de UNA opción. Usa gum en terminal gráfica, o un menú
+# numerado con read en la consola básica.
+ask_choice() {
+  local header="$1"
+  shift
+  local opts=("$@")
+
+  if ! $IS_TTY_CONSOLE; then
+    gum choose --header "$header" "${opts[@]}"
+    return
+  fi
+
+  {
+    echo ""
+    echo "== $(strip_emoji "$header") =="
+    local i=1
+    for o in "${opts[@]}"; do
+      echo "  $i) $(strip_emoji "$o")"
+      i=$((i + 1))
+    done
+  } >&2
+
+  local n
+  while true; do
+    read -rp "Elegí un número [1-${#opts[@]}]: " n </dev/tty
+    if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le "${#opts[@]}" ]; then
+      echo "${opts[$((n - 1))]}"
+      return
+    fi
+    echo "Opción inválida." >&2
+  done
+}
+
+# Selección MÚLTIPLE (todas premarcadas por defecto). Usa gum en
+# terminal gráfica, o un menú numerado en la consola básica donde se
+# escriben los números a DESMARCAR.
+ask_multi() {
+  local header="$1"
+  shift
+  local opts=("$@")
+
+  if ! $IS_TTY_CONSOLE; then
+    local joined
+    joined=$(
+      IFS=,
+      echo "${opts[*]}"
+    )
+    gum choose --no-limit --selected "$joined" --header "$header" "${opts[@]}"
+    return
+  fi
+
+  {
+    echo ""
+    echo "== $(strip_emoji "$header") =="
+    local i=1
+    for o in "${opts[@]}"; do
+      echo "  $i) $o"
+      i=$((i + 1))
+    done
+    echo "  Todas están premarcadas. Escribí los NÚMEROS a DESMARCAR"
+    echo "  separados por espacio (Enter vacío = dejarlas todas)."
+  } >&2
+
+  local input
+  read -rp "Desmarcar: " input </dev/tty
+
+  local exclude=()
+  read -ra exclude <<<"$input"
+
+  local i=1
+  for o in "${opts[@]}"; do
+    local skip=false
+    for x in "${exclude[@]}"; do
+      [[ "$x" == "$i" ]] && skip=true
+    done
+    $skip || echo "$o"
+    i=$((i + 1))
+  done
+}
+
+# -----------------------------
 # 0.2. Selección de modo
 # -----------------------------
 clear
 banner
 
-MODE=$(gum choose --header "Elige el modo de instalación:" \
+MODE=$(ask_choice "Elige el modo de instalación:" \
   "🔊 Interactivo (sudo, con confirmaciones)" \
   "🤫 Silencioso (automático, sin pausas)")
 
@@ -150,7 +250,7 @@ sleep 1
 # -----------------------------
 # 0.3. Selección de compositor
 # -----------------------------
-COMP=$(gum choose --header "¿Qué querés instalar?" \
+COMP=$(ask_choice "¿Qué querés instalar?" \
   "🌊 Hyprland (window manager + apps y configuraciones)" \
   "🌀 Niri (window manager + apps y configuraciones)" \
   "🌊🌀 Ambos (Hyprland + Niri + apps y configuraciones)" \
@@ -196,7 +296,7 @@ fi
 sleep 1
 
 # -----------------------------
-# 0.5. Selección de Noctalia Shell
+# 0.5. Noctalia Shell — automático con Hyprland/Niri (sin preguntar)
 # -----------------------------
 INSTALL_NOCTALIA=false
 NOCTALIA_PKG=""
@@ -205,25 +305,12 @@ RESTORE_NOCTALIA_CONFIG=false
 
 if $INSTALL_KDE; then
   gum style --foreground 244 "Noctalia Shell es para Hyprland/Niri — se omite con KDE Plasma."
-else
-  NOCTALIA_CHOICE=$(gum choose --header "¿Instalar Noctalia Shell?" "✅ Sí" "❌ No")
-  case "$NOCTALIA_CHOICE" in
-  *Sí*) INSTALL_NOCTALIA=true ;;
-  *) INSTALL_NOCTALIA=false ;;
-  esac
-
-  if $INSTALL_NOCTALIA; then
-    NOCTALIA_PKG="noctalia-git"
-    NOCTALIA_QS_PKG="noctalia-qs-git"
-
-    NOCTALIA_RESTORE_CHOICE=$(gum choose --header "¿Noctalia limpio o restaurar tu config desde respaldo/noctalia?" \
-      "🧹 Limpio (config por defecto de Noctalia)" \
-      "📂 Restaurar respaldo/noctalia")
-    case "$NOCTALIA_RESTORE_CHOICE" in
-    *Restaurar*) RESTORE_NOCTALIA_CONFIG=true ;;
-    *) RESTORE_NOCTALIA_CONFIG=false ;;
-    esac
-  fi
+elif $INSTALL_HYPRLAND || $INSTALL_NIRI; then
+  INSTALL_NOCTALIA=true
+  NOCTALIA_PKG="noctalia-git"
+  NOCTALIA_QS_PKG="noctalia-qs-git"
+  RESTORE_NOCTALIA_CONFIG=false
+  gum style --foreground 244 "Noctalia Shell se instala automáticamente, limpio (elegiste Hyprland y/o Niri)."
 fi
 
 # -----------------------------
@@ -234,7 +321,7 @@ RESTORE_NIRI_CONFIG=false
 RESTORE_KDE_CONFIG=false
 
 if $INSTALL_KDE; then
-  KDE_RESTORE_CHOICE=$(gum choose --header "KDE Plasma: ¿limpio o restaurar desde respaldo/kde?" \
+  KDE_RESTORE_CHOICE=$(ask_choice "KDE Plasma: ¿limpio o restaurar desde respaldo/kde?" \
     "🧹 Limpio" \
     "📂 Restaurar respaldo/kde")
   case "$KDE_RESTORE_CHOICE" in
@@ -243,7 +330,7 @@ if $INSTALL_KDE; then
   esac
 else
   if $INSTALL_HYPRLAND; then
-    HYPR_RESTORE_CHOICE=$(gum choose --header "Hyprland: ¿limpio o restaurar desde respaldo/hypr?" \
+    HYPR_RESTORE_CHOICE=$(ask_choice "Hyprland: ¿limpio o restaurar desde respaldo/hypr?" \
       "🧹 Limpio" \
       "📂 Restaurar respaldo/hypr")
     case "$HYPR_RESTORE_CHOICE" in
@@ -253,7 +340,7 @@ else
   fi
 
   if $INSTALL_NIRI; then
-    NIRI_RESTORE_CHOICE=$(gum choose --header "Niri: ¿limpio o restaurar desde respaldo/niri?" \
+    NIRI_RESTORE_CHOICE=$(ask_choice "Niri: ¿limpio o restaurar desde respaldo/niri?" \
       "🧹 Limpio" \
       "📂 Restaurar respaldo/niri")
     case "$NIRI_RESTORE_CHOICE" in
@@ -276,7 +363,7 @@ if $SILENT; then
   # se instala todo directo, como venía siendo.
   INSTALL_ALL=true
 else
-  ALL_OR_REVIEW=$(gum choose --header "¿Cómo querés elegir las apps extra?" \
+  ALL_OR_REVIEW=$(ask_choice "¿Cómo querés elegir las apps extra?" \
     "🎁 Instalar todo (sin revisar cada categoría)" \
     "🔍 Revisar categoría por categoría")
   grep -q "Instalar todo" <<<"$ALL_OR_REVIEW" && INSTALL_ALL=true
@@ -306,14 +393,9 @@ pick_apps_in_category() {
   shift
   local all_pkgs=("$@")
   show_already_installed "${all_pkgs[@]}"
-  local joined
-  joined=$(
-    IFS=,
-    echo "${all_pkgs[*]}"
-  )
   # shellcheck disable=SC2207
-  SEL_RESULT=($(gum choose --no-limit --selected "$joined" \
-    --header "$title — desmarcá lo que NO quieras (espacio, enter para confirmar):" \
+  SEL_RESULT=($(ask_multi \
+    "$title — desmarcá lo que NO quieras (espacio, enter para confirmar):" \
     "${all_pkgs[@]}"))
 }
 
@@ -346,7 +428,7 @@ if $INSTALL_ALL; then
 else
   # Gestor de paquetes gráfico (un solo paquete → sí/no, no picker)
   show_already_installed pamac-aur
-  PAMAC_CHOICE=$(gum choose --header "📦 ¿Instalar el gestor de paquetes gráfico (pamac)?" "✅ Sí" "❌ No")
+  PAMAC_CHOICE=$(ask_choice "📦 ¿Instalar el gestor de paquetes gráfico (pamac)?" "✅ Sí" "❌ No")
   grep -q "Sí" <<<"$PAMAC_CHOICE" && INSTALL_CAT_PAMAC=true
 
   pick_apps_in_category "🖥️  Utilidades de escritorio" "${DESKTOP_ALL[@]}"
@@ -366,7 +448,7 @@ else
 
   # Autenticación facial (un solo paquete → sí/no, no picker)
   show_already_installed howdy-git
-  HOWDY_CHOICE=$(gum choose --header "🔐 ¿Instalar autenticación facial (howdy)?" "✅ Sí" "❌ No")
+  HOWDY_CHOICE=$(ask_choice "🔐 ¿Instalar autenticación facial (howdy)?" "✅ Sí" "❌ No")
   grep -q "Sí" <<<"$HOWDY_CHOICE" && INSTALL_CAT_HOWDY=true
 
   pick_apps_in_category "🗂️  Snapshots BTRFS" "${SNAPSHOTS_ALL[@]}"
@@ -389,12 +471,23 @@ run_step() {
   fi
 }
 
+ask_confirm() {
+  local question="$1"
+  if ! $IS_TTY_CONSOLE; then
+    gum confirm "$question"
+    return
+  fi
+  local ans
+  read -rp "$(strip_emoji "$question") [s/N]: " ans </dev/tty
+  [[ "$ans" =~ ^[sSyY] ]]
+}
+
 confirm_step() {
   local question="$1"
   if $SILENT; then
     return 0
   fi
-  gum confirm "$question"
+  ask_confirm "$question"
 }
 
 log_or_show() {
@@ -432,16 +525,24 @@ run_pacman_progress() {
   local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' spin_i=0 spin_phase_msg="" subpct=0
 
   while kill -0 "$pid" 2>/dev/null; do
-    # El archivo tiene \r (actualizaciones en vivo) en vez de \n —
-    # convertimos y agarramos la última línea con progreso real.
-    last=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | grep -E '\([0-9]+/[0-9]+\) (installing|upgrading|reinstalling)' | tail -1)
+    # El archivo tiene \r (actualizaciones en vivo) en vez de \n, y como
+    # ahora pacman cree que tiene una terminal real, también mete
+    # códigos de color ANSI antes de "(n/total)" — hay que sacarlos
+    # antes de parsear, si no la línea no matchea y las variables
+    # quedan vacías (causaba "printf: : invalid number").
+    last=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | \
+      grep -E '\([0-9]+/[0-9]+\) (installing|upgrading|reinstalling)' | tail -1)
     if [[ -n "$last" ]]; then
       cur=$(grep -oE '^\([0-9]+' <<<"$last" | tr -d '(')
       tot=$(grep -oE '^\([0-9]+/[0-9]+\)' <<<"$last" | grep -oE '/[0-9]+' | tr -d '/')
       pkg=$(sed -E 's#^\([0-9]+/[0-9]+\) [a-z]+ ([^ ]+).*#\1#' <<<"$last")
       subpct=$(grep -oE '[0-9]+%' <<<"$last" | tail -1 | tr -d '%')
+      # Blindaje: si por algún motivo alguna quedó vacía, usar 0 en vez
+      # de dejar que printf reviente con "invalid number".
       [[ -z "$subpct" ]] && subpct=0
+      [[ -z "$cur" ]] && cur=1
       [[ -z "$tot" || "$tot" -eq 0 ]] && tot=$total_pkgs
+      [[ -z "$pkg" ]] && pkg="..."
       pct=$(( ((cur - 1) * 100 + subpct) / tot ))
       [[ $pct -gt 100 ]] && pct=100
       [[ $pct -lt 0 ]] && pct=0
@@ -454,7 +555,7 @@ run_pacman_progress() {
       # Todavía no hay nada que contar — pacman sigue resolviendo
       # dependencias, sincronizando bases de datos o descargando.
       # Spinner para que se vea movimiento real desde el arranque.
-      spin_phase_msg=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | tail -1 | \
+      spin_phase_msg=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tail -1 | \
         grep -oE 'downloading\.\.\.|Synchronizing package databases\.\.\.|resolving dependencies\.\.\.|looking for conflicting packages\.\.\.|Retrieving packages\.\.\.' | tail -1)
       [[ -z "$spin_phase_msg" ]] && spin_phase_msg="preparando..."
       spin_i=$(((spin_i + 1) % ${#spin_chars}))
@@ -465,10 +566,11 @@ run_pacman_progress() {
 
   local rc=0
   wait "$pid" || rc=$?
+  [[ -z "$tot" || "$tot" -eq 0 ]] && tot=$total_pkgs
   printf "\r  \033[34m[%s]\033[0m %3d%%  (%d/%d) %-40s\n" \
     "$(printf '█%.0s' $(seq 1 "$bar_len"))" 100 "$tot" "$tot" "listo"
 
-  tr '\r' '\n' <"$tmp_out" >>"$LOG_FILE" 2>/dev/null
+  tr '\r' '\n' <"$tmp_out" | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' >>"$LOG_FILE" 2>/dev/null
 
   if [[ $rc -ne 0 ]]; then
     gum style --border rounded --border-foreground 196 --padding "1 3" \
@@ -560,7 +662,7 @@ gum style --border rounded --border-foreground 25 --padding "1 3" --margin "1 0"
   "📋 RESUMEN DE INSTALACIÓN" "" "${SUMMARY_LINES[@]}"
 
 if ! $SILENT; then
-  gum confirm "¿Continuar con la instalación?" || {
+  ask_confirm "¿Continuar con la instalación?" || {
     echo "Cancelado."
     exit 0
   }
