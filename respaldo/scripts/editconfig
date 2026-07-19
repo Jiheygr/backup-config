@@ -428,7 +428,6 @@ while true; do
 
     option=$(printf '%s\n' \
         "📝 editar .zshrc" \
-        "📝 editar hyprland.conf" \
         "🎨 change zsh theme  (actual: ${tema_actual})" \
         "🌐 idioma anime  (actual: ${idioma_label})" \
         "🔄 update noctalia" \
@@ -441,9 +440,6 @@ while true; do
     case "$option" in
         *"editar .zshrc"*)
             nvim "$HOME/.zshrc"
-            ;;
-        *"editar hyprland.conf"*)
-            nvim "$HOME/.config/hypr/hyprland.conf"
             ;;
         *"change zsh theme"*)
             tema=$(printf '%s\n' "⬅  Volver" "$(ls ~/.oh-my-zsh/themes/ | sed 's/\.zsh-theme//')" \
