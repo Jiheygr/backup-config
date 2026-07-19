@@ -326,7 +326,10 @@ pick_apps_in_category() {
   shift
   local all_pkgs=("$@")
   local joined
-  joined=$(IFS=,; echo "${all_pkgs[*]}")
+  joined=$(
+    IFS=,
+    echo "${all_pkgs[*]}"
+  )
   # shellcheck disable=SC2207
   SEL_RESULT=($(gum choose --no-limit --selected "$joined" \
     --header "$title — desmarcá lo que NO quieras (espacio, enter para confirmar):" \
@@ -344,10 +347,10 @@ DESKTOP_ALL=(libappindicator-gtk3 nwg-drawer nwg-look papirus-icon-theme swaybg 
   thunar tumbler ffmpegthumbnailer wl-clip-persist wl-clipboard cliphist
   adw-gtk-theme qt6ct gsettings-qt6)
 CAPTURE_ALL=(grim slurp gpu-screen-recorder cava mpvpaper)
-GAMING_ALL=(wine-staging winetricks protontricks protonplus mangojuice steam gamemode gamescope)
+GAMING_ALL=(wine-staging winetricks protontricks protonplus mangojuice steam gamemode gamescope vulkan-tools)
 APPS_ALL=(telegram-desktop discord brave-origin-bin proton-vpn-gtk-app localsend
   mission-center fastfetch gnome-firmware gearlever chafa ark)
-TERMINAL_ALL=(neovim neovim-qt fzf eza yazi)
+TERMINAL_ALL=(neovim neovim-qt fzf jq eza yazi)
 SNAPSHOTS_ALL=(btrfs-assistant btrfs-progs snapper snap-pac)
 
 if $INSTALL_ALL; then
@@ -390,7 +393,6 @@ else
     SEL_SNAPSHOTS=("${SEL_RESULT[@]}")
   fi
 fi
-
 
 # Helpers de ejecución
 # -----------------------------
@@ -560,7 +562,10 @@ else
   if [[ ${#CAT_SUMMARY[@]} -eq 0 ]]; then
     SUMMARY_LINES+=("📦 Apps: ninguna categoría extra elegida")
   else
-    SUMMARY_LINES+=("📦 Apps: $(IFS=, ; echo "${CAT_SUMMARY[*]}")")
+    SUMMARY_LINES+=("📦 Apps: $(
+      IFS=,
+      echo "${CAT_SUMMARY[*]}"
+    )")
   fi
 fi
 
@@ -568,7 +573,10 @@ gum style --border rounded --border-foreground 25 --padding "1 3" --margin "1 0"
   "📋 RESUMEN DE INSTALACIÓN" "" "${SUMMARY_LINES[@]}"
 
 if ! $SILENT; then
-  gum confirm "¿Continuar con la instalación?" || { echo "Cancelado."; exit 0; }
+  gum confirm "¿Continuar con la instalación?" || {
+    echo "Cancelado."
+    exit 0
+  }
 fi
 
 section "Iniciando la instalación de apps, configuraciones y el window manager seleccionado (si corresponde)..."
@@ -971,15 +979,15 @@ else
     # del usuario (respetando xdg-user-dirs, con fallback a ~/Pictures),
     # no a ~/.config — así sirve para wallpapers y fotos, no configs.
     case "$folder" in
-      Pictures | pictures | Imagenes | imagenes | Imágenes | wallpapers | Wallpapers)
-        PICTURES_DIR=$(sudo -u "$REAL_USER" xdg-user-dir PICTURES 2>/dev/null)
-        [ -z "$PICTURES_DIR" ] && PICTURES_DIR="$USER_HOME/Pictures"
-        mkdir -p "$PICTURES_DIR"
-        cp -r "$SRC"/. "$PICTURES_DIR"/
-        chown -R "$REAL_USER:$REAL_USER" "$PICTURES_DIR"
-        gum style --foreground 82 "  ✅ $folder → $PICTURES_DIR/ (wallpapers y fotos)"
-        continue
-        ;;
+    Pictures | pictures | Imagenes | imagenes | Imágenes | wallpapers | Wallpapers)
+      PICTURES_DIR=$(sudo -u "$REAL_USER" xdg-user-dir PICTURES 2>/dev/null)
+      [ -z "$PICTURES_DIR" ] && PICTURES_DIR="$USER_HOME/Pictures"
+      mkdir -p "$PICTURES_DIR"
+      cp -r "$SRC"/. "$PICTURES_DIR"/
+      chown -R "$REAL_USER:$REAL_USER" "$PICTURES_DIR"
+      gum style --foreground 82 "  ✅ $folder → $PICTURES_DIR/ (wallpapers y fotos)"
+      continue
+      ;;
     esac
 
     # Respetar la elección de qué restaurar (Hyprland/Niri/Noctalia/Limpio).
