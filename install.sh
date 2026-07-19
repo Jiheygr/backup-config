@@ -213,19 +213,8 @@ else
   esac
 
   if $INSTALL_NOCTALIA; then
-    NOCTALIA_VER_CHOICE=$(gum choose --header "¿Qué versión de Noctalia?" \
-      "🟢 Estable (noctalia — release, ej. 5.0.0-beta2)" \
-      "🔧 Git (noctalia-git — última, menos estable)")
-    case "$NOCTALIA_VER_CHOICE" in
-    *Git*)
-      NOCTALIA_PKG="noctalia-git"
-      NOCTALIA_QS_PKG="noctalia-qs-git"
-      ;;
-    *)
-      NOCTALIA_PKG="noctalia"
-      NOCTALIA_QS_PKG="noctalia-qs"
-      ;;
-    esac
+    NOCTALIA_PKG="noctalia-git"
+    NOCTALIA_QS_PKG="noctalia-qs-git"
 
     NOCTALIA_RESTORE_CHOICE=$(gum choose --header "¿Noctalia limpio o restaurar tu config desde respaldo/noctalia?" \
       "🧹 Limpio (config por defecto de Noctalia)" \
@@ -242,9 +231,16 @@ fi
 # -----------------------------
 RESTORE_HYPR_CONFIG=false
 RESTORE_NIRI_CONFIG=false
+RESTORE_KDE_CONFIG=false
 
 if $INSTALL_KDE; then
-  gum style --foreground 244 "KDE Plasma no usa configs de respaldo de Hyprland/Niri — se omite este paso."
+  KDE_RESTORE_CHOICE=$(gum choose --header "KDE Plasma: ¿limpio o restaurar desde respaldo/kde?" \
+    "🧹 Limpio" \
+    "📂 Restaurar respaldo/kde")
+  case "$KDE_RESTORE_CHOICE" in
+  *Restaurar*) RESTORE_KDE_CONFIG=true ;;
+  *) RESTORE_KDE_CONFIG=false ;;
+  esac
 else
   if $INSTALL_HYPRLAND; then
     HYPR_RESTORE_CHOICE=$(gum choose --header "Hyprland: ¿limpio o restaurar desde respaldo/hypr?" \
@@ -267,64 +263,49 @@ else
   fi
 fi
 # -----------------------------
-# 0.8. Categorías de apps — selección múltiple + apps individuales
+# 0.8. Categorías de apps — una por una, con detección de instalado
 # -----------------------------
 # Todo lo que NO es estrictamente necesario para que el window manager
-# elegido funcione (eso ya se instala aparte, fijo) queda agrupado en
-# categorías optativas. Espacio para marcar varias, Enter para confirmar.
-# Por cada categoría marcada, después se puede desmarcar apps puntuales
-# (vienen todas premarcadas — si no tocás nada, se instala la categoría
-# completa como antes).
-CATEGORY_SELECTION=$(gum choose --no-limit --header "¿Qué categorías de apps querés instalar? (espacio = marcar, enter = confirmar)" \
-  "🎁 Instalar todo" \
-  "📦 Gestor de paquetes gráfico (pamac)" \
-  "🖥️  Utilidades de escritorio (Thunar, portapapeles, temas, etc.)" \
-  "📸 Capturas y grabación (grim, gpu-screen-recorder, mpvpaper, cava)" \
-  "🎮 Gaming (Wine, Steam, gamemode, gamescope)" \
-  "💬 Apps y comunicación (Telegram, Discord, Brave, VPN, LocalSend)" \
-  "🐚 Terminal avanzada (fzf, eza, yazi, neovim)" \
-  "🔐 Autenticación facial (howdy)" \
-  "🗂️  Snapshots BTRFS (snapper, btrfs-assistant)")
-
+# elegido funcione (eso ya se instala aparte, fijo) se recorre categoría
+# por categoría, cada una en su propia pantalla — sin un paso previo de
+# "elegí qué categorías" que después se repite. Antes de cada categoría
+# se avisa qué de eso ya está instalado.
 INSTALL_ALL=false
-grep -q "Instalar todo" <<<"$CATEGORY_SELECTION" && INSTALL_ALL=true
-
-INSTALL_CAT_PAMAC=false
-INSTALL_CAT_DESKTOP=false
-INSTALL_CAT_CAPTURE=false
-INSTALL_CAT_GAMING=false
-INSTALL_CAT_APPS=false
-INSTALL_CAT_TERMINAL=false
-INSTALL_CAT_HOWDY=false
-INSTALL_CAT_SNAPSHOTS=false
-
-if $INSTALL_ALL; then
-  INSTALL_CAT_PAMAC=true
-  INSTALL_CAT_DESKTOP=true
-  INSTALL_CAT_CAPTURE=true
-  INSTALL_CAT_GAMING=true
-  INSTALL_CAT_APPS=true
-  INSTALL_CAT_TERMINAL=true
-  INSTALL_CAT_HOWDY=true
-  INSTALL_CAT_SNAPSHOTS=true
+if $SILENT; then
+  # En modo silencioso no tiene sentido ir pantalla por pantalla —
+  # se instala todo directo, como venía siendo.
+  INSTALL_ALL=true
 else
-  grep -q "Gestor de paquetes" <<<"$CATEGORY_SELECTION" && INSTALL_CAT_PAMAC=true
-  grep -q "Utilidades de escritorio" <<<"$CATEGORY_SELECTION" && INSTALL_CAT_DESKTOP=true
-  grep -q "Capturas y grabación" <<<"$CATEGORY_SELECTION" && INSTALL_CAT_CAPTURE=true
-  grep -q "Gaming" <<<"$CATEGORY_SELECTION" && INSTALL_CAT_GAMING=true
-  grep -q "Apps y comunicación" <<<"$CATEGORY_SELECTION" && INSTALL_CAT_APPS=true
-  grep -q "Terminal avanzada" <<<"$CATEGORY_SELECTION" && INSTALL_CAT_TERMINAL=true
-  grep -q "Autenticación facial" <<<"$CATEGORY_SELECTION" && INSTALL_CAT_HOWDY=true
-  grep -q "Snapshots BTRFS" <<<"$CATEGORY_SELECTION" && INSTALL_CAT_SNAPSHOTS=true
+  ALL_OR_REVIEW=$(gum choose --header "¿Cómo querés elegir las apps extra?" \
+    "🎁 Instalar todo (sin revisar cada categoría)" \
+    "🔍 Revisar categoría por categoría")
+  grep -q "Instalar todo" <<<"$ALL_OR_REVIEW" && INSTALL_ALL=true
 fi
 
-# Selecciona apps individuales dentro de una categoría marcada. Recibe el
-# título, y la lista de paquetes de esa categoría; deja el resultado (los
-# que quedaron marcados) en el array global SEL_RESULT.
+INSTALL_CAT_PAMAC=false
+INSTALL_CAT_HOWDY=false
+
+# Muestra qué paquetes de una lista ya están instalados, si hay alguno.
+show_already_installed() {
+  local already=()
+  for p in "$@"; do
+    pacman -Qq "$p" &>/dev/null && already+=("$p")
+  done
+  if [[ ${#already[@]} -gt 0 ]]; then
+    gum style --foreground 82 "  ✔ Ya instalado: $(
+      IFS=', '
+      echo "${already[*]}"
+    )"
+  fi
+}
+
+# Selecciona apps individuales dentro de una categoría. Recibe el
+# título y la lista de paquetes; deja el resultado en SEL_RESULT.
 pick_apps_in_category() {
   local title="$1"
   shift
   local all_pkgs=("$@")
+  show_already_installed "${all_pkgs[@]}"
   local joined
   joined=$(
     IFS=,
@@ -354,8 +335,8 @@ TERMINAL_ALL=(neovim neovim-qt fzf jq eza yazi)
 SNAPSHOTS_ALL=(btrfs-assistant btrfs-progs snapper snap-pac)
 
 if $INSTALL_ALL; then
-  # "Instalar todo" no pasa categoría por categoría preguntando — va
-  # directo con la lista completa de cada una.
+  INSTALL_CAT_PAMAC=true
+  INSTALL_CAT_HOWDY=true
   SEL_DESKTOP=("${DESKTOP_ALL[@]}")
   SEL_CAPTURE=("${CAPTURE_ALL[@]}")
   SEL_GAMING=("${GAMING_ALL[@]}")
@@ -363,35 +344,33 @@ if $INSTALL_ALL; then
   SEL_TERMINAL=("${TERMINAL_ALL[@]}")
   SEL_SNAPSHOTS=("${SNAPSHOTS_ALL[@]}")
 else
-  if $INSTALL_CAT_DESKTOP; then
-    pick_apps_in_category "🖥️ Utilidades de escritorio" "${DESKTOP_ALL[@]}"
-    SEL_DESKTOP=("${SEL_RESULT[@]}")
-  fi
+  # Gestor de paquetes gráfico (un solo paquete → sí/no, no picker)
+  show_already_installed pamac-aur
+  PAMAC_CHOICE=$(gum choose --header "📦 ¿Instalar el gestor de paquetes gráfico (pamac)?" "✅ Sí" "❌ No")
+  grep -q "Sí" <<<"$PAMAC_CHOICE" && INSTALL_CAT_PAMAC=true
 
-  if $INSTALL_CAT_CAPTURE; then
-    pick_apps_in_category "📸 Capturas y grabación" "${CAPTURE_ALL[@]}"
-    SEL_CAPTURE=("${SEL_RESULT[@]}")
-  fi
+  pick_apps_in_category "🖥️  Utilidades de escritorio" "${DESKTOP_ALL[@]}"
+  SEL_DESKTOP=("${SEL_RESULT[@]}")
 
-  if $INSTALL_CAT_GAMING; then
-    pick_apps_in_category "🎮 Gaming" "${GAMING_ALL[@]}"
-    SEL_GAMING=("${SEL_RESULT[@]}")
-  fi
+  pick_apps_in_category "📸 Capturas y grabación" "${CAPTURE_ALL[@]}"
+  SEL_CAPTURE=("${SEL_RESULT[@]}")
 
-  if $INSTALL_CAT_APPS; then
-    pick_apps_in_category "💬 Apps y comunicación" "${APPS_ALL[@]}"
-    SEL_APPS=("${SEL_RESULT[@]}")
-  fi
+  pick_apps_in_category "🎮 Gaming" "${GAMING_ALL[@]}"
+  SEL_GAMING=("${SEL_RESULT[@]}")
 
-  if $INSTALL_CAT_TERMINAL; then
-    pick_apps_in_category "🐚 Terminal avanzada" "${TERMINAL_ALL[@]}"
-    SEL_TERMINAL=("${SEL_RESULT[@]}")
-  fi
+  pick_apps_in_category "💬 Apps y comunicación" "${APPS_ALL[@]}"
+  SEL_APPS=("${SEL_RESULT[@]}")
 
-  if $INSTALL_CAT_SNAPSHOTS; then
-    pick_apps_in_category "🗂️ Snapshots BTRFS" "${SNAPSHOTS_ALL[@]}"
-    SEL_SNAPSHOTS=("${SEL_RESULT[@]}")
-  fi
+  pick_apps_in_category "🐚 Terminal avanzada" "${TERMINAL_ALL[@]}"
+  SEL_TERMINAL=("${SEL_RESULT[@]}")
+
+  # Autenticación facial (un solo paquete → sí/no, no picker)
+  show_already_installed howdy-git
+  HOWDY_CHOICE=$(gum choose --header "🔐 ¿Instalar autenticación facial (howdy)?" "✅ Sí" "❌ No")
+  grep -q "Sí" <<<"$HOWDY_CHOICE" && INSTALL_CAT_HOWDY=true
+
+  pick_apps_in_category "🗂️  Snapshots BTRFS" "${SNAPSHOTS_ALL[@]}"
+  SEL_SNAPSHOTS=("${SEL_RESULT[@]}")
 fi
 
 # Helpers de ejecución
@@ -436,49 +415,52 @@ run_pacman_progress() {
 
   local tmp_out
   tmp_out=$(mktemp)
+  local total_pkgs=$#
 
-  stdbuf -oL -eL pacman -S --noconfirm --needed "$@" >"$tmp_out" 2>&1 &
+  # Antes usábamos stdbuf + captura por archivo normal, pero pacman
+  # detecta que no hay una terminal real y deja de reescribir su barra
+  # en vivo — solo imprime una línea por paquete cuando termina. Por eso
+  # la barra "saltaba" en vez de ir fluida. Con `script` le damos una
+  # pseudo-terminal real: pacman usa su barra nativa con \r y % interno
+  # de cada paquete, y de ahí sacamos el progreso real.
+  local pkg_args=()
+  for p in "$@"; do pkg_args+=("$(printf '%q' "$p")"); done
+  script -qefc "pacman -S --noconfirm --needed ${pkg_args[*]}" "$tmp_out" >/dev/null 2>&1 &
   local pid=$!
 
-  local bar_len=30 cur=0 tot=$# pkg="" pct=0 filled=0 last=""
-  local total_pkgs=$#
-  local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' spin_i=0 spin_phase_msg="" dl_count=0 dl_pkg=""
+  local bar_len=30 cur=0 tot=$total_pkgs pkg="" pct=0 filled=0 last=""
+  local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' spin_i=0 spin_phase_msg="" subpct=0
 
   while kill -0 "$pid" 2>/dev/null; do
-    last=$(grep -oE '\([0-9]+/[0-9]+\) installing [^ ]+' "$tmp_out" 2>/dev/null | tail -1)
+    # El archivo tiene \r (actualizaciones en vivo) en vez de \n —
+    # convertimos y agarramos la última línea con progreso real.
+    last=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | grep -E '\([0-9]+/[0-9]+\) (installing|upgrading|reinstalling)' | tail -1)
     if [[ -n "$last" ]]; then
-      cur=$(sed -E 's#^\(([0-9]+)/([0-9]+)\) installing ([^ ]+).*#\1#' <<<"$last")
-      tot=$(sed -E 's#^\(([0-9]+)/([0-9]+)\) installing ([^ ]+).*#\2#' <<<"$last")
-      pkg=$(sed -E 's#^\(([0-9]+)/([0-9]+)\) installing ([^ ]+).*#\3#' <<<"$last")
-      pct=$((cur * 100 / tot))
+      cur=$(grep -oE '^\([0-9]+' <<<"$last" | tr -d '(')
+      tot=$(grep -oE '^\([0-9]+/[0-9]+\)' <<<"$last" | grep -oE '/[0-9]+' | tr -d '/')
+      pkg=$(sed -E 's#^\([0-9]+/[0-9]+\) [a-z]+ ([^ ]+).*#\1#' <<<"$last")
+      subpct=$(grep -oE '[0-9]+%' <<<"$last" | tail -1 | tr -d '%')
+      [[ -z "$subpct" ]] && subpct=0
+      [[ -z "$tot" || "$tot" -eq 0 ]] && tot=$total_pkgs
+      pct=$(( ((cur - 1) * 100 + subpct) / tot ))
+      [[ $pct -gt 100 ]] && pct=100
+      [[ $pct -lt 0 ]] && pct=0
       filled=$((pct * bar_len / 100))
       printf "\r  \033[34m[%s%s]\033[0m %3d%%  (%d/%d) %-40s" \
         "$(printf '█%.0s' $(seq 1 "$filled" 2>/dev/null))" \
         "$(printf '░%.0s' $(seq 1 $((bar_len - filled)) 2>/dev/null))" \
         "$pct" "$cur" "$tot" "$pkg"
-    elif dl_count=$(grep -cE '^[^ ]+ downloading\.\.\.$' "$tmp_out" 2>/dev/null) && [[ "$dl_count" -gt 0 ]]; then
-      # Fase de descarga: pacman imprime una línea "paquete downloading..."
-      # por cada archivo. Contamos cuántas van vs el total pedido para
-      # armar una barra real también en esta fase (no solo un spinner).
-      dl_pkg=$(grep -oE '^[^ ]+ downloading\.\.\.$' "$tmp_out" 2>/dev/null | tail -1 | sed 's/ downloading\.\.\.$//')
-      [[ "$dl_count" -gt "$total_pkgs" ]] && dl_count=$total_pkgs
-      pct=$((dl_count * 100 / total_pkgs))
-      filled=$((pct * bar_len / 100))
-      printf "\r  \033[36m[%s%s]\033[0m %3d%%  (%d/%d) descargando %-30s" \
-        "$(printf '█%.0s' $(seq 1 "$filled" 2>/dev/null))" \
-        "$(printf '░%.0s' $(seq 1 $((bar_len - filled)) 2>/dev/null))" \
-        "$pct" "$dl_count" "$total_pkgs" "$dl_pkg"
     else
-      # Todavía no hay nada que contar (installing/downloading) —
-      # normalmente pacman sigue resolviendo dependencias o sincronizando
-      # bases de datos. Mostramos un spinner para que se vea movimiento
-      # real desde el arranque, en vez de una barra en 0%.
-      spin_phase_msg=$(tail -1 "$tmp_out" 2>/dev/null | grep -oE 'downloading\.\.\.|Synchronizing package databases\.\.\.|resolving dependencies\.\.\.|looking for conflicting packages\.\.\.|Retrieving packages\.\.\.' | tail -1)
+      # Todavía no hay nada que contar — pacman sigue resolviendo
+      # dependencias, sincronizando bases de datos o descargando.
+      # Spinner para que se vea movimiento real desde el arranque.
+      spin_phase_msg=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | tail -1 | \
+        grep -oE 'downloading\.\.\.|Synchronizing package databases\.\.\.|resolving dependencies\.\.\.|looking for conflicting packages\.\.\.|Retrieving packages\.\.\.' | tail -1)
       [[ -z "$spin_phase_msg" ]] && spin_phase_msg="preparando..."
       spin_i=$(((spin_i + 1) % ${#spin_chars}))
       printf "\r  \033[34m%s\033[0m %-50s" "${spin_chars:$spin_i:1}" "$spin_phase_msg"
     fi
-    sleep 0.15
+    sleep 0.1
   done
 
   local rc=0
@@ -486,7 +468,7 @@ run_pacman_progress() {
   printf "\r  \033[34m[%s]\033[0m %3d%%  (%d/%d) %-40s\n" \
     "$(printf '█%.0s' $(seq 1 "$bar_len"))" 100 "$tot" "$tot" "listo"
 
-  cat "$tmp_out" >>"$LOG_FILE"
+  tr '\r' '\n' <"$tmp_out" >>"$LOG_FILE" 2>/dev/null
 
   if [[ $rc -ne 0 ]]; then
     gum style --border rounded --border-foreground 196 --padding "1 3" \
@@ -506,6 +488,11 @@ SUMMARY_LINES=()
 
 if $INSTALL_KDE; then
   SUMMARY_LINES+=("🟪 Escritorio: KDE Plasma")
+  if $RESTORE_KDE_CONFIG; then
+    SUMMARY_LINES+=("   • KDE: restaurar respaldo/kde")
+  else
+    SUMMARY_LINES+=("   • KDE: limpio")
+  fi
 elif $INSTALL_HYPRLAND && $INSTALL_NIRI; then
   SUMMARY_LINES+=("🌊🌀 Window manager: Hyprland + Niri")
 elif $INSTALL_HYPRLAND; then
@@ -1003,6 +990,10 @@ else
     fi
     if [ "$folder" = "noctalia" ] && ! $RESTORE_NOCTALIA_CONFIG; then
       gum style --foreground 244 "  ⏭️  noctalia → omitido (se pidió Noctalia limpio)"
+      continue
+    fi
+    if [ "$folder" = "kde" ] && ! $RESTORE_KDE_CONFIG; then
+      gum style --foreground 244 "  ⏭️  kde → omitido (se pidió KDE limpio)"
       continue
     fi
 
