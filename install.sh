@@ -328,27 +328,9 @@ if $INSTALL_KDE; then
   *Restaurar*) RESTORE_KDE_CONFIG=true ;;
   *) RESTORE_KDE_CONFIG=false ;;
   esac
-else
-  if $INSTALL_HYPRLAND; then
-    HYPR_RESTORE_CHOICE=$(ask_choice "Hyprland: ¿limpio o restaurar desde respaldo/hypr?" \
-      "🧹 Limpio" \
-      "📂 Restaurar respaldo/hypr")
-    case "$HYPR_RESTORE_CHOICE" in
-    *Restaurar*) RESTORE_HYPR_CONFIG=true ;;
-    *) RESTORE_HYPR_CONFIG=false ;;
-    esac
-  fi
-
-  if $INSTALL_NIRI; then
-    NIRI_RESTORE_CHOICE=$(ask_choice "Niri: ¿limpio o restaurar desde respaldo/niri?" \
-      "🧹 Limpio" \
-      "📂 Restaurar respaldo/niri")
-    case "$NIRI_RESTORE_CHOICE" in
-    *Restaurar*) RESTORE_NIRI_CONFIG=true ;;
-    *) RESTORE_NIRI_CONFIG=false ;;
-    esac
-  fi
 fi
+# Hyprland y Niri van siempre "limpio": si pasaste --hyprland-lua/--niri-kdl
+# se aplican directo, sin preguntar nada (ver sección 10.1 más abajo).
 # -----------------------------
 # 0.8. Categorías de apps — una por una, con detección de instalado
 # -----------------------------
@@ -358,16 +340,10 @@ fi
 # "elegí qué categorías" que después se repite. Antes de cada categoría
 # se avisa qué de eso ya está instalado.
 INSTALL_ALL=false
-if $SILENT; then
-  # En modo silencioso no tiene sentido ir pantalla por pantalla —
-  # se instala todo directo, como venía siendo.
-  INSTALL_ALL=true
-else
-  ALL_OR_REVIEW=$(ask_choice "¿Cómo querés elegir las apps extra?" \
-    "🎁 Instalar todo (sin revisar cada categoría)" \
-    "🔍 Revisar categoría por categoría")
-  grep -q "Instalar todo" <<<"$ALL_OR_REVIEW" && INSTALL_ALL=true
-fi
+ALL_OR_REVIEW=$(ask_choice "¿Cómo querés elegir las apps extra?" \
+  "🎁 Instalar todo (sin revisar cada categoría)" \
+  "🔍 Revisar categoría por categoría")
+grep -q "Instalar todo" <<<"$ALL_OR_REVIEW" && INSTALL_ALL=true
 
 INSTALL_CAT_PAMAC=false
 INSTALL_CAT_HOWDY=false
