@@ -272,9 +272,10 @@ hl.bind(mainMod .. " + CTRL + P", hl.dsp.exec_cmd("protonvpn-app"))
 hl.bind("Print", hl.dsp.exec_cmd("grim ~/Pictures/Screenshots/$(date +%Y%m%d_%H%M%S).png")) -- Screenshot
 hl.bind(mainMod .. " + Print", hl.dsp.exec_cmd('grim -g "$(slurp)" ~/Pictures/Screenshots/$(date +%Y%m%d_%H%M%S).png')) --n Screenshot 2
 hl.bind(mainMod .. " + F1", hl.dsp.exec_cmd("~/.config/hypr/scripts/power-toggle.sh"))
-hl.bind(mainMod .. " + W", hl.dsp.exec_cmd("qs -c noctalia-shell ipc call plugin togglePanel mpvpaper"))
-hl.bind(mainMod .. " + Delete", hl.dsp.exec_cmd("qs -c noctalia-shell ipc call sessionMenu toggle"))
-hl.bind(mainMod .. " + CTRL + S", hl.dsp.exec_cmd("qs -c noctalia-shell ipc call settings toggle"))
+hl.bind(mainMod .. " + W", hl.dsp.exec_cmd("noctalia msg panel-toggle noctalia/mpvpaper:picker"))
+hl.bind(mainMod .. " + Delete", hl.dsp.exec_cmd("noctalia msg panel-toggle session"))
+hl.bind(mainMod .. " + CTRL + S", hl.dsp.exec_cmd("noctalia msg panel-toggle control-center"))
+hl.bind(mainMod .. " + period", hl.dsp.exec_cmd("noctalia msg settings-toggle"))
 
 -- Move focus with mainMod + arrow keys
 hl.bind(mainMod .. " + left", hl.dsp.focus({ direction = "left" }))
@@ -381,4 +382,3 @@ hl.window_rule({
 	move = "20 monitor_h-120",
 	float = true,
 })
-
