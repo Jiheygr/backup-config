@@ -40,7 +40,7 @@ local menu = "nwg-drawer"
 -- Or execute your favorite apps at launch like this:
 hl.on("hyprland.start", function()
 	hl.exec_cmd("hyprctl keyword 'device[dualsense-wireless-controller-touchpad]:enabled' 'false'")
-	hl.exec_cmd("qs -c noctalia-shell")
+	hl.exec_cmd("noctalia")
 	hl.exec_cmd("/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1")
 	hl.exec_cmd("xhost +local:")
 end)
