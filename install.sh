@@ -1068,15 +1068,33 @@ else
       ;;
     esac
 
-    # Respetar la elección de qué restaurar (Hyprland/Niri/Noctalia/Limpio).
-    # El resto de las carpetas de respaldo/ (kitty, zsh, etc.) se
-    # restauran siempre, esta elección solo afecta hypr/niri/noctalia.
+    # Respetar qué se eligió instalar. Antes esto solo miraba
+    # RESTORE_*_CONFIG (limpio/respaldo), pero eso ya no alcanza: si no
+    # elegiste ese compositor, su carpeta de respaldo no debe copiarse
+    # NUNCA, sin importar el valor de RESTORE_*_CONFIG.
+    if [ "$folder" = "hypr" ] && ! $INSTALL_HYPRLAND; then
+      gum style --foreground 244 "  ⏭️  hypr → omitido (no elegiste instalar Hyprland)"
+      continue
+    fi
+    if [ "$folder" = "niri" ] && ! $INSTALL_NIRI; then
+      gum style --foreground 244 "  ⏭️  niri → omitido (no elegiste instalar Niri)"
+      continue
+    fi
+    if [ "$folder" = "kde" ] && ! $INSTALL_KDE; then
+      gum style --foreground 244 "  ⏭️  kde → omitido (no elegiste instalar KDE)"
+      continue
+    fi
+    if [ "$folder" = "noctalia" ] && ! $INSTALL_NOCTALIA; then
+      gum style --foreground 244 "  ⏭️  noctalia → omitido (Noctalia no se instaló)"
+      continue
+    fi
+
     if [ "$folder" = "hypr" ] && ! $RESTORE_HYPR_CONFIG; then
-      gum style --foreground 244 "  ⏭️  hypr → omitido (no se pidió restaurar Hyprland)"
+      gum style --foreground 244 "  ⏭️  hypr → omitido (se pidió Hyprland limpio)"
       continue
     fi
     if [ "$folder" = "niri" ] && ! $RESTORE_NIRI_CONFIG; then
-      gum style --foreground 244 "  ⏭️  niri → omitido (no se pidió restaurar Niri)"
+      gum style --foreground 244 "  ⏭️  niri → omitido (se pidió Niri limpio)"
       continue
     fi
     if [ "$folder" = "noctalia" ] && ! $RESTORE_NOCTALIA_CONFIG; then
