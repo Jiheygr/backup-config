@@ -115,6 +115,7 @@ source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.pl
 alias ls='eza -a --icons=always'
 alias y='yazi'
 alias icat="kitten icat"
+alias svim='sudo nvim "+set number"'
 
 ### END CUSTOM PLUGINS ###
 
@@ -125,3 +126,5 @@ fastfetch
 
 # opencode
 export PATH=/home/jihey/.opencode/bin:$PATH
+
+
