@@ -136,7 +136,7 @@ IS_TTY_CONSOLE=false
 # Saca los emoji conocidos que usa el script (lista fija, no rangos
 # Unicode, para no depender de herramientas externas tipo perl/python).
 strip_emoji() {
-  sed -e 's/🔊//g; s/🤫//g; s/🌊//g; s/🌀//g; s/🟪//g; s/📦//g; s/✅//g; s/❌//g;
+  sed -e 's/🔊//g; s/🤫//g; s/🌊//g; s/🌀//g; s/🔀//g; s/🟪//g; s/📦//g; s/✅//g; s/❌//g;
           s/🧹//g; s/📂//g; s/🎁//g; s/🔍//g; s/🖥️//g; s/📸//g; s/🎮//g;
           s/💬//g; s/🐚//g; s/🔐//g; s/🗂️//g; s/🎨//g; s/🐧//g; s/🔎//g' <<<"$1" \
     | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
@@ -253,11 +253,13 @@ sleep 1
 COMP=$(ask_choice "¿Qué querés instalar?" \
   "🌊 Hyprland (window manager + apps y configuraciones)" \
   "🌀 Niri (window manager + apps y configuraciones)" \
-  "🌊🌀 Ambos (Hyprland + Niri + apps y configuraciones)" \
+  "🔀 Ambos (Hyprland + Niri + apps y configuraciones)" \
   "🟪 KDE Plasma (escritorio completo)" \
   "📦 Solo apps y configuraciones (sin window manager)")
 
 INSTALL_KDE=false
+INSTALL_HYPRLAND=false
+INSTALL_NIRI=false
 case "$COMP" in
 *Ambos*)
   INSTALL_HYPRLAND=true
@@ -279,6 +281,15 @@ case "$COMP" in
 *"Solo apps"*)
   INSTALL_HYPRLAND=false
   INSTALL_NIRI=false
+  ;;
+*)
+  # No debería pasar nunca, pero si $COMP vino vacío o no matchea
+  # ninguna opción, cortamos con un error BIEN visible (echo directo,
+  # no solo gum) en vez de seguir en silencio con un valor por defecto
+  # que puede confundir sobre qué se está instalando.
+  echo "❌ No se reconoció la selección del window manager: '$COMP'" >&2
+  echo "   Volvé a correr el script y probá de nuevo." >&2
+  exit 1
   ;;
 esac
 
@@ -316,8 +327,8 @@ fi
 # -----------------------------
 # 0.5.1. Selección de restauración de respaldo
 # -----------------------------
-RESTORE_HYPR_CONFIG=false
-RESTORE_NIRI_CONFIG=false
+RESTORE_HYPR_CONFIG=true
+RESTORE_NIRI_CONFIG=true
 RESTORE_KDE_CONFIG=false
 
 if $INSTALL_KDE; then
@@ -329,8 +340,10 @@ if $INSTALL_KDE; then
   *) RESTORE_KDE_CONFIG=false ;;
   esac
 fi
-# Hyprland y Niri van siempre "limpio": si pasaste --hyprland-lua/--niri-kdl
-# se aplican directo, sin preguntar nada (ver sección 10.1 más abajo).
+# Hyprland y Niri restauran respaldo/hypr y respaldo/niri SIEMPRE, sin
+# preguntar. Si además pasaste --hyprland-lua/--niri-kdl, esos flags no
+# se aplican (ver sección 10.1 más abajo) porque el respaldo ya trae la
+# config completa y no hay que pisarla.
 # -----------------------------
 # 0.8. Categorías de apps — una por una, con detección de instalado
 # -----------------------------
