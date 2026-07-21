@@ -4,16 +4,12 @@ layout {
         active-color "#bac3ff"
         inactive-color "#121319"
         urgent-color "#ffb4ab"
-
-        width 4
     }
 
     border {
         active-color "#bac3ff"
         inactive-color "#121319"
         urgent-color "#ffb4ab"
-
-        width 4
     }
 
     shadow {
@@ -29,7 +25,6 @@ layout {
     insert-hint {
         color "#bac3ff80"
     }
-    gaps 8
 }
 
 recent-windows {

@@ -317,6 +317,9 @@ binds {
     
     
     
+    
+    
+    
 
     
     
@@ -2416,11 +2419,9 @@ binds {
 
     Mod+Page_Down      { focus-workspace-down; }
     Mod+Page_Up        { focus-workspace-up; }
-    Mod+U              { focus-workspace-down; }
     Mod+I              { focus-workspace-up; }
     Mod+Ctrl+Page_Down { move-column-to-workspace-down; }
     Mod+Ctrl+Page_Up   { move-column-to-workspace-up; }
-    Mod+Ctrl+U         { move-column-to-workspace-down; }
     Mod+Ctrl+I         { move-column-to-workspace-up; }
 
     // Alternatively, there are commands to move just a single window:
@@ -2429,7 +2430,6 @@ binds {
 
     Mod+Shift+Page_Down { move-workspace-down; }
     Mod+Shift+Page_Up   { move-workspace-up; }
-    Mod+Shift+U         { move-workspace-down; }
     Mod+Shift+I         { move-workspace-up; }
 
     // You can bind mouse wheel scroll ticks using the following syntax.
@@ -2601,6 +2601,7 @@ binds {
     Mod+Shift+W { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=hnpfjngllnobngcgfapefoaidbinmjnm"; }
     Mod+Y { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=agimnkijcaahngcdmfeangaknmldooml"; }
     Mod+Shift+Y { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=cinhimbnkkaeohfgghhklpknlkffjgod"; }
+    Mod+U { spawn-sh "kitty -e update-system"; }
 }
 
 environment {
