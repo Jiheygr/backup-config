@@ -1,1 +1,6 @@
+[Unit]
+Description=Chequear actualizaciones de pacman
 
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/check-updates-notify
