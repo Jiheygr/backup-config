@@ -1068,6 +1068,34 @@ else
       ;;
     esac
 
+    # Carpeta especial: unidades systemd de usuario (services/timers),
+    # que NO van a ~/.config/<folder> tal cual sino a
+    # ~/.config/systemd/user/, y además hay que habilitarlas.
+    if [ "$folder" = "systemd-user" ]; then
+      USER_SYSTEMD_DIR="$CONFIG_DIR/systemd/user"
+      sudo -u "$REAL_USER" mkdir -p "$USER_SYSTEMD_DIR"
+      cp "$SRC"/. "$USER_SYSTEMD_DIR"/ -r 2>/dev/null
+      shopt -s nullglob
+      cp "$SRC"*.service "$SRC"*.timer "$USER_SYSTEMD_DIR"/ 2>/dev/null || true
+      shopt -u nullglob
+      chown -R "$REAL_USER:$REAL_USER" "$USER_SYSTEMD_DIR"
+      gum style --foreground 82 "  ✅ systemd-user → $USER_SYSTEMD_DIR/"
+
+      sudo -u "$REAL_USER" env XDG_RUNTIME_DIR="/run/user/$(id -u "$REAL_USER")" \
+        systemctl --user daemon-reload || true
+
+      shopt -s nullglob
+      for timer_file in "$USER_SYSTEMD_DIR"/*.timer; do
+        timer_name=$(basename "$timer_file")
+        sudo -u "$REAL_USER" env XDG_RUNTIME_DIR="/run/user/$(id -u "$REAL_USER")" \
+          systemctl --user enable --now "$timer_name" && \
+          gum style --foreground 82 "  ✅ $timer_name activado." || \
+          gum style --foreground 244 "  ⚠️  No se pudo activar $timer_name."
+      done
+      shopt -u nullglob
+      continue
+    fi
+
     # Respetar qué se eligió instalar. Antes esto solo miraba
     # RESTORE_*_CONFIG (limpio/respaldo), pero eso ya no alcanza: si no
     # elegiste ese compositor, su carpeta de respaldo no debe copiarse
