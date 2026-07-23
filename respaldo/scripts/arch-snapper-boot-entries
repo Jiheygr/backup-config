@@ -1,6 +1,44 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ── Modo instalador del timer (opcional) ────────────────────────────
+# Uso: sudo arch-snapper-boot-entries --install-timer
+# Instala y activa el service+timer de systemd para que este script se
+# corra solo (a los 2 min de cada arranque, y después una vez al día).
+if [[ "${1:-}" == "--install-timer" ]]; then
+    SELF_PATH="$(readlink -f "$0")"
+
+    cat > /etc/systemd/system/arch-snapper-boot-entries.service <<EOF
+[Unit]
+Description=Regenerar entradas de boot de systemd-boot para snapshots de snapper
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=${SELF_PATH}
+EOF
+
+    cat > /etc/systemd/system/arch-snapper-boot-entries.timer <<'EOF'
+[Unit]
+Description=Corre arch-snapper-boot-entries diariamente y al arrancar
+
+[Timer]
+OnBootSec=2min
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable --now arch-snapper-boot-entries.timer
+
+    echo "✅ Timer instalado y activado."
+    systemctl list-timers | grep snapper-boot || true
+    exit 0
+fi
+
 ENTRIES_DIR="/boot/loader/entries"
 CONFIG="root"
 
@@ -28,6 +66,47 @@ elif [[ -f /boot/amd-ucode.img ]]; then
     MICROCODE="amd-ucode.img"
 fi
 
+# ── Entrada de Windows (chainload) ──────────────────────────────────
+# UUID de la partición ESP del disco de Windows (nvme0n1p1). Si el disco
+# no está conectado (ej. lo desenchufaste), simplemente se saltea esto
+# sin romper el resto del script.
+WINDOWS_ESP_UUID="6034-C9E8"
+
+_ensure_windows_entry() {
+    local winesp_dev="/dev/disk/by-uuid/${WINDOWS_ESP_UUID}"
+
+    if [[ ! -e "$winesp_dev" ]]; then
+        echo "ℹ️  ESP de Windows (UUID ${WINDOWS_ESP_UUID}) no está conectada, salteando." >&2
+        return
+    fi
+
+    if [[ ! -f "/boot/EFI/Microsoft/Boot/bootmgfw.efi" ]]; then
+        echo "🪟 Copiando bootloader de Windows a la ESP local..."
+        local mnt
+        mnt=$(mktemp -d)
+        if mount "$winesp_dev" "$mnt" 2>/dev/null; then
+            mkdir -p /boot/EFI/Microsoft
+            cp -r "${mnt}/EFI/Microsoft/." /boot/EFI/Microsoft/ 2>/dev/null || \
+                echo "⚠️  No se pudo copiar el bootloader de Windows." >&2
+            umount "$mnt"
+        else
+            echo "⚠️  No se pudo montar la ESP de Windows, salteando." >&2
+        fi
+        rmdir "$mnt" 2>/dev/null || true
+    fi
+
+    if [[ ! -f "${ENTRIES_DIR}/windows.conf" ]]; then
+        {
+            echo "title    Windows"
+            echo "sort-key arch-windows"
+            echo "efi      /EFI/Microsoft/Boot/bootmgfw.efi"
+        } > "${ENTRIES_DIR}/windows.conf"
+        echo "✅ Entrada de Windows creada."
+    fi
+}
+
+_ensure_windows_entry
+
 # Limpiar entradas antiguas
 rm -f "${ENTRIES_DIR}"/snapshot-*.conf
 
@@ -39,8 +118,19 @@ mapfile -t SNAPSHOTS < <(
     tail -5
 )
 
+# Fecha/hora de cada snapshot (para mostrarla en el título de la entrada)
+declare -A SNAP_DATE
+while IFS='│' read -r f1 _ _ f4 _; do
+    num=$(tr -d '[:space:]' <<< "$f1")
+    [[ "$num" =~ ^[0-9]+$ ]] || continue
+    raw_date=$(sed -E 's/^[[:space:]]+|[[:space:]]+$//g' <<< "$f4")
+    [[ -z "$raw_date" ]] && continue
+    SNAP_DATE["$num"]=$(date -d "$raw_date" +"%d %b %H:%M" 2>/dev/null || echo "$raw_date")
+done < <(snapper -c "$CONFIG" list)
+
 for NUM in "${SNAPSHOTS[@]}"; do
     SNAP_PATH="@/.snapshots/${NUM}/snapshot"
+    SNAP_WHEN="${SNAP_DATE[$NUM]:-}"
 
     for KERNEL in "${KERNELS[@]}"; do
         SUFFIX="${KERNEL#vmlinuz-}"
@@ -53,7 +143,11 @@ for NUM in "${SNAPSHOTS[@]}"; do
         fi
 
         {
-            echo "title   CachyOS Snapshot #${NUM} (${SUFFIX})"
+            if [[ -n "$SNAP_WHEN" ]]; then
+                echo "title   CachyOS Snapshot #${NUM} (${SUFFIX}) — ${SNAP_WHEN}"
+            else
+                echo "title   CachyOS Snapshot #${NUM} (${SUFFIX})"
+            fi
             echo "linux   /${KERNEL}"
 
             [[ -n "$MICROCODE" ]] && echo "initrd  /${MICROCODE}"
