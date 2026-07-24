@@ -138,8 +138,8 @@ IS_TTY_CONSOLE=false
 strip_emoji() {
   sed -e 's/🔊//g; s/🤫//g; s/🌊//g; s/🌀//g; s/🔀//g; s/🟪//g; s/📦//g; s/✅//g; s/❌//g;
           s/🧹//g; s/📂//g; s/🎁//g; s/🔍//g; s/🖥️//g; s/📸//g; s/🎮//g;
-          s/💬//g; s/🐚//g; s/🔐//g; s/🗂️//g; s/🎨//g; s/🐧//g; s/🔎//g' <<<"$1" |
-    sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
+          s/💬//g; s/🐚//g; s/🔐//g; s/🗂️//g; s/🎨//g; s/🐧//g; s/🔎//g' <<<"$1" \
+    | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
 }
 
 # Selección de UNA opción. Usa gum en terminal gráfica, o un menú
@@ -267,32 +267,37 @@ detect_monitors() {
   section "🔎 Detectando monitores conectados..."
   pacman -Sy --noconfirm --needed edid-decode >/dev/null 2>&1 || true
 
-  local edid_path
-  for edid_path in /sys/class/drm/card*-*/edid; do
-    [[ -s "$edid_path" ]] || continue
+  local status_path
+  for status_path in /sys/class/drm/card*-*/status; do
+    [[ -f "$status_path" ]] || continue
 
-    local drm_path conn status info res refresh
-    drm_path=$(dirname "$edid_path")
-    conn=$(basename "$drm_path" | sed -E 's/^card[0-9]+-//') # DP-1, HDMI-A-1, eDP-1...
-    status=$(cat "$drm_path/status" 2>/dev/null)
-    [[ "$status" != "connected" ]] && continue
+    local drm_path conn status edid_path info res refresh
+    drm_path=$(dirname "$status_path")
+    conn=$(basename "$drm_path" | sed -E 's/^card[0-9]+-//')  # DP-1, HDMI-A-1, eDP-1...
+    status=$(cat "$status_path" 2>/dev/null)
+    [[ "$status" == "connected" ]] || continue
 
-    info=$(edid-decode "$edid_path" 2>/dev/null)
-    res=$(grep -A2 "Detailed Timing Descriptors" <<<"$info" | grep -oE '[0-9]{3,4}x[0-9]{3,4}' | head -1)
-    [[ -z "$res" ]] && res=$(grep -oE '[0-9]{3,4}x[0-9]{3,4}' <<<"$info" | sort -u | tail -1)
-    refresh=$(grep -oE '[0-9]{2,3}\.[0-9]{2} Hz' <<<"$info" | sort -u | tail -1 | grep -oE '^[0-9.]+')
+    edid_path="$drm_path/edid"
+    res=""
+    refresh=""
+    if [[ -s "$edid_path" ]]; then
+      info=$(edid-decode "$edid_path" 2>/dev/null)
+      res=$(grep -A2 "Detailed Timing Descriptors" <<<"$info" | grep -oE '[0-9]{3,4}x[0-9]{3,4}' | head -1)
+      [[ -z "$res" ]] && res=$(grep -oE '[0-9]{3,4}x[0-9]{3,4}' <<<"$info" | sort -u | tail -1)
+      refresh=$(grep -oE '[0-9]{2,3}\.[0-9]{2} Hz' <<<"$info" | sort -u | tail -1 | grep -oE '^[0-9.]+')
+    fi
 
     if [[ -n "$res" ]]; then
       gum style --foreground 82 "  ✅ $conn detectado: ${res} @ ${refresh:-60.00}Hz"
       DETECTED_MONITORS+=("${conn}|${res}|${refresh:-60.00}|1")
     else
-      gum style --foreground 244 "  ⚠️ $conn conectado pero no se pudo leer resolución del EDID"
+      gum style --foreground 244 "  ⚠️ $conn conectado pero no se pudo leer el EDID (puede necesitar el driver de GPU instalado) — vas a poder configurarlo manualmente"
       DETECTED_MONITORS+=("${conn}|||1")
     fi
   done
 
   if [[ ${#DETECTED_MONITORS[@]} -eq 0 ]]; then
-    gum style --foreground 196 "  ⚠️ No se detectó ningún monitor vía EDID — se usará auto-detect del compositor."
+    gum style --foreground 196 "  ⚠️ No se detectó ningún monitor conectado — se usará auto-detect del compositor."
   fi
 }
 
@@ -697,7 +702,7 @@ run_pacman_progress() {
     # códigos de color ANSI antes de "(n/total)" — hay que sacarlos
     # antes de parsear, si no la línea no matchea y las variables
     # quedan vacías (causaba "printf: : invalid number").
-    last=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' |
+    last=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | \
       grep -E '\([0-9]+/[0-9]+\) (installing|upgrading|reinstalling)' | tail -1)
     if [[ -n "$last" ]]; then
       cur=$(grep -oE '^\([0-9]+' <<<"$last" | tr -d '(')
@@ -710,7 +715,7 @@ run_pacman_progress() {
       [[ -z "$cur" ]] && cur=1
       [[ -z "$tot" || "$tot" -eq 0 ]] && tot=$total_pkgs
       [[ -z "$pkg" ]] && pkg="..."
-      pct=$((((cur - 1) * 100 + subpct) / tot))
+      pct=$(( ((cur - 1) * 100 + subpct) / tot ))
       [[ $pct -gt 100 ]] && pct=100
       [[ $pct -lt 0 ]] && pct=0
       filled=$((pct * bar_len / 100))
@@ -722,7 +727,7 @@ run_pacman_progress() {
       # Todavía no hay nada que contar — pacman sigue resolviendo
       # dependencias, sincronizando bases de datos o descargando.
       # Spinner para que se vea movimiento real desde el arranque.
-      spin_phase_msg=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tail -1 |
+      spin_phase_msg=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tail -1 | \
         grep -oE 'downloading\.\.\.|Synchronizing package databases\.\.\.|resolving dependencies\.\.\.|looking for conflicting packages\.\.\.|Retrieving packages\.\.\.' | tail -1)
       [[ -z "$spin_phase_msg" ]] && spin_phase_msg="preparando..."
       spin_i=$(((spin_i + 1) % ${#spin_chars}))
@@ -1313,6 +1318,7 @@ gum style --foreground 82 "✅ keyd configurado y habilitado."
 # -----------------------------
 section "📂 Restaurando configuraciones desde $SCRIPT_DIR/respaldo..."
 
+
 # Generar las carpetas de usuario estándar (Pictures, Videos, Documents,
 # etc.) ANTES de restaurar — así "Pictures" existe en el idioma/nombre
 # correcto y no queda mal puesta o duplicada.
@@ -1397,8 +1403,8 @@ EOF
       for timer_file in "$USER_SYSTEMD_DIR"/*.timer; do
         timer_name=$(basename "$timer_file")
         sudo -u "$REAL_USER" env XDG_RUNTIME_DIR="/run/user/$(id -u "$REAL_USER")" \
-          systemctl --user enable --now "$timer_name" &&
-          gum style --foreground 82 "  ✅ $timer_name activado." ||
+          systemctl --user enable --now "$timer_name" && \
+          gum style --foreground 82 "  ✅ $timer_name activado." || \
           gum style --foreground 244 "  ⚠️  No se pudo activar $timer_name."
       done
       shopt -u nullglob
