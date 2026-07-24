@@ -301,6 +301,30 @@ detect_monitors() {
   fi
 }
 
+# Devuelve, uno por línea, los modos "AnchoxAlto@Hz" que el EDID de ese
+# conector reporta realmente soportar (no solo el preferido). Sirve
+# para que el usuario elija un valor exacto en vez de escribir un Hz
+# "a ciegas" que el compositor después ignora por no coincidir con
+# ningún modo real (ej. escribir 144 cuando el panel reporta 143.98).
+get_edid_modes() {
+  local conn="$1"
+  local edid_path=""
+  local d
+  for d in /sys/class/drm/card*-"${conn}"/edid; do
+    [[ -s "$d" ]] && edid_path="$d" && break
+  done
+  [[ -z "$edid_path" ]] && return
+
+  local info
+  info=$(edid-decode "$edid_path" 2>/dev/null)
+  grep -E '[0-9]{3,4}x[0-9]{3,4}.*[0-9]{2,3}\.[0-9]{2,3} ?Hz' <<<"$info" | while read -r line; do
+    local res hz
+    res=$(grep -oE '[0-9]{3,4}x[0-9]{3,4}' <<<"$line" | head -1)
+    hz=$(grep -oE '[0-9]{2,3}\.[0-9]{2,3}' <<<"$line" | head -1)
+    [[ -n "$res" && -n "$hz" ]] && echo "${res}@${hz}"
+  done | awk '!seen[$0]++'
+}
+
 # Paso interactivo: para cada monitor detectado, preguntar si se usa lo
 # detectado, se ingresa manualmente, o se deja en auto-detect (sin
 # forzar nada). Modifica DETECTED_MONITORS in-place.
@@ -331,8 +355,26 @@ choose_monitor_settings() {
     case "$choice" in
     *"manualmente"*)
       local new_res new_refresh new_scale
-      new_res=$(ask_input "Resolución para ${conn} (formato AnchoxAlto, ej: 1920x1080)" "$res")
-      new_refresh=$(ask_input "Refresh rate para ${conn} en Hz (ej: 60.00)" "${refresh:-60.00}")
+      local -a modes
+      mapfile -t modes < <(get_edid_modes "$conn")
+
+      if [[ ${#modes[@]} -gt 0 ]]; then
+        local mode_opts=("${modes[@]}" "✏️  Ingresar otro valor a mano")
+        local mode_choice
+        mode_choice=$(ask_choice "Modos reales que reporta ${conn} — elegí uno:" "${mode_opts[@]}")
+        if [[ "$mode_choice" == "✏️  Ingresar otro valor a mano" ]]; then
+          new_res=$(ask_input "Resolución para ${conn} (formato AnchoxAlto, ej: 1920x1080)" "$res")
+          new_refresh=$(ask_input "Refresh rate para ${conn} en Hz (ej: 60.00)" "${refresh:-60.00}")
+        else
+          new_res="${mode_choice%@*}"
+          new_refresh="${mode_choice#*@}"
+        fi
+      else
+        gum style --foreground 244 "  ⚠️ No se pudo leer la lista de modos del EDID para ${conn} — ingresá el valor a mano."
+        new_res=$(ask_input "Resolución para ${conn} (formato AnchoxAlto, ej: 1920x1080)" "$res")
+        new_refresh=$(ask_input "Refresh rate para ${conn} en Hz (ej: 60.00)" "${refresh:-60.00}")
+      fi
+
       new_scale=$(ask_input "Escala para ${conn} (ej: 1, 1.5, 2)" "${scale:-1}")
       DETECTED_MONITORS[$i]="${conn}|${new_res}|${new_refresh}|${new_scale}"
       gum style --foreground 82 "  ✅ ${conn} → ${new_res}@${new_refresh}Hz, escala ${new_scale}"
