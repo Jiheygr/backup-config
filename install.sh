@@ -138,8 +138,8 @@ IS_TTY_CONSOLE=false
 strip_emoji() {
   sed -e 's/🔊//g; s/🤫//g; s/🌊//g; s/🌀//g; s/🔀//g; s/🟪//g; s/📦//g; s/✅//g; s/❌//g;
           s/🧹//g; s/📂//g; s/🎁//g; s/🔍//g; s/🖥️//g; s/📸//g; s/🎮//g;
-          s/💬//g; s/🐚//g; s/🔐//g; s/🗂️//g; s/🎨//g; s/🐧//g; s/🔎//g' <<<"$1" \
-    | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
+          s/💬//g; s/🐚//g; s/🔐//g; s/🗂️//g; s/🎨//g; s/🐧//g; s/🔎//g' <<<"$1" |
+    sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
 }
 
 # Selección de UNA opción. Usa gum en terminal gráfica, o un menú
@@ -219,6 +219,185 @@ ask_multi() {
     done
     $skip || echo "$o"
     i=$((i + 1))
+  done
+}
+
+# Confirmación sí/no. Usa gum en terminal gráfica, o [s/N] con read en
+# la consola básica.
+ask_confirm() {
+  local question="$1"
+  if ! $IS_TTY_CONSOLE; then
+    gum confirm "$question"
+    return
+  fi
+  local ans
+  read -rp "$(strip_emoji "$question") [s/N]: " ans </dev/tty
+  [[ "$ans" =~ ^[sSyY] ]]
+}
+
+# Entrada de texto libre (para resolución/refresh manual de monitor,
+# por ejemplo). Usa "gum input" en terminal gráfica, o read en la
+# consola básica.
+ask_input() {
+  local prompt="$1"
+  local default="${2:-}"
+  local ans
+  if ! $IS_TTY_CONSOLE; then
+    gum input --placeholder "$default" --prompt "$(strip_emoji "$prompt"): "
+    return
+  fi
+  if [[ -n "$default" ]]; then
+    read -rp "$(strip_emoji "$prompt") [$default]: " ans </dev/tty
+    echo "${ans:-$default}"
+  else
+    read -rp "$(strip_emoji "$prompt"): " ans </dev/tty
+    echo "$ans"
+  fi
+}
+
+# -----------------------------
+# Detección y selección de monitores vía EDID
+# -----------------------------
+# DETECTED_MONITORS: array de "conector|resolución|refresh|escala"
+# (ej: "DP-1|2560x1440|144.00|1"). Se lee directo de /sys/class/drm, así
+# que funciona aunque todavía no haya compositor corriendo.
+DETECTED_MONITORS=()
+
+detect_monitors() {
+  section "🔎 Detectando monitores conectados..."
+  pacman -Sy --noconfirm --needed edid-decode >/dev/null 2>&1 || true
+
+  local edid_path
+  for edid_path in /sys/class/drm/card*-*/edid; do
+    [[ -s "$edid_path" ]] || continue
+
+    local drm_path conn status info res refresh
+    drm_path=$(dirname "$edid_path")
+    conn=$(basename "$drm_path" | sed -E 's/^card[0-9]+-//') # DP-1, HDMI-A-1, eDP-1...
+    status=$(cat "$drm_path/status" 2>/dev/null)
+    [[ "$status" != "connected" ]] && continue
+
+    info=$(edid-decode "$edid_path" 2>/dev/null)
+    res=$(grep -A2 "Detailed Timing Descriptors" <<<"$info" | grep -oE '[0-9]{3,4}x[0-9]{3,4}' | head -1)
+    [[ -z "$res" ]] && res=$(grep -oE '[0-9]{3,4}x[0-9]{3,4}' <<<"$info" | sort -u | tail -1)
+    refresh=$(grep -oE '[0-9]{2,3}\.[0-9]{2} Hz' <<<"$info" | sort -u | tail -1 | grep -oE '^[0-9.]+')
+
+    if [[ -n "$res" ]]; then
+      gum style --foreground 82 "  ✅ $conn detectado: ${res} @ ${refresh:-60.00}Hz"
+      DETECTED_MONITORS+=("${conn}|${res}|${refresh:-60.00}|1")
+    else
+      gum style --foreground 244 "  ⚠️ $conn conectado pero no se pudo leer resolución del EDID"
+      DETECTED_MONITORS+=("${conn}|||1")
+    fi
+  done
+
+  if [[ ${#DETECTED_MONITORS[@]} -eq 0 ]]; then
+    gum style --foreground 196 "  ⚠️ No se detectó ningún monitor vía EDID — se usará auto-detect del compositor."
+  fi
+}
+
+# Paso interactivo: para cada monitor detectado, preguntar si se usa lo
+# detectado, se ingresa manualmente, o se deja en auto-detect (sin
+# forzar nada). Modifica DETECTED_MONITORS in-place.
+choose_monitor_settings() {
+  if [[ ${#DETECTED_MONITORS[@]} -eq 0 ]]; then
+    return
+  fi
+
+  section "🖥️  Configuración de monitor(es)"
+  local i
+  for i in "${!DETECTED_MONITORS[@]}"; do
+    local conn res refresh scale
+    IFS='|' read -r conn res refresh scale <<<"${DETECTED_MONITORS[$i]}"
+
+    local detected_label
+    if [[ -n "$res" ]]; then
+      detected_label="✅ Usar lo detectado (${res}@${refresh}Hz)"
+    else
+      detected_label="✅ Usar lo detectado (no se pudo leer resolución)"
+    fi
+
+    local choice
+    choice=$(ask_choice "Monitor ${conn} — ¿qué configuración querés usar?" \
+      "$detected_label" \
+      "✏️  Elegir resolución/refresh manualmente" \
+      "🤖 Dejar en auto-detect (sin forzar nada)")
+
+    case "$choice" in
+    *"manualmente"*)
+      local new_res new_refresh new_scale
+      new_res=$(ask_input "Resolución para ${conn} (formato AnchoxAlto, ej: 1920x1080)" "$res")
+      new_refresh=$(ask_input "Refresh rate para ${conn} en Hz (ej: 60.00)" "${refresh:-60.00}")
+      new_scale=$(ask_input "Escala para ${conn} (ej: 1, 1.5, 2)" "${scale:-1}")
+      DETECTED_MONITORS[$i]="${conn}|${new_res}|${new_refresh}|${new_scale}"
+      gum style --foreground 82 "  ✅ ${conn} → ${new_res}@${new_refresh}Hz, escala ${new_scale}"
+      ;;
+    *"auto-detect"*)
+      DETECTED_MONITORS[$i]="${conn}|||${scale:-1}"
+      gum style --foreground 244 "  🤖 ${conn} → sin forzar (auto-detect del compositor)"
+      ;;
+    *)
+      gum style --foreground 82 "  ✅ ${conn} → se usa lo detectado"
+      ;;
+    esac
+  done
+}
+
+# Genera el bloque hl.monitor({...}) de Hyprland (sintaxis real del
+# hyprland.lua) para cada monitor detectado, y lo devuelve por stdout
+# (para reemplazar el marcador AUTO_MONITOR_BLOCK).
+generate_hypr_monitor_block() {
+  if [[ ${#DETECTED_MONITORS[@]} -eq 0 ]]; then
+    cat <<'EOF'
+hl.monitor({
+	output = "",
+	mode = "preferred",
+	position = "auto",
+	scale = 1.0,
+})
+EOF
+    return
+  fi
+  local m conn res refresh scale
+  for m in "${DETECTED_MONITORS[@]}"; do
+    IFS='|' read -r conn res refresh scale <<<"$m"
+    if [[ -n "$res" ]]; then
+      cat <<EOF
+hl.monitor({
+	output = "${conn}",
+	mode = "${res}@${refresh}",
+	position = "auto",
+	scale = ${scale:-1.0},
+})
+EOF
+    else
+      cat <<EOF
+hl.monitor({
+	output = "${conn}",
+	mode = "preferred",
+	position = "auto",
+	scale = ${scale:-1.0},
+})
+EOF
+    fi
+  done
+}
+
+# Genera el/los bloque(s) "output" de Niri (sintaxis KDL) para el
+# conector detectado y los devuelve por stdout (para reemplazar el
+# marcador AUTO_MONITOR_BLOCK dentro del config.kdl).
+generate_niri_output_block() {
+  if [[ ${#DETECTED_MONITORS[@]} -eq 0 ]]; then
+    echo "// No se detectó ningún monitor — usando auto-detect de niri por defecto"
+    return
+  fi
+  local m conn res refresh scale
+  for m in "${DETECTED_MONITORS[@]}"; do
+    IFS='|' read -r conn res refresh scale <<<"$m"
+    echo "output \"${conn}\" {"
+    [[ -n "$res" ]] && echo "    mode \"${res}@${refresh}\""
+    echo "    scale ${scale:-1}"
+    echo "}"
   done
 }
 
@@ -305,6 +484,16 @@ else
   gum style --foreground 244 "Sin window manager — solo apps y configuraciones."
 fi
 sleep 1
+
+# -----------------------------
+# 0.4.1. Configuración de monitor(es) — paso obligatorio
+# -----------------------------
+# Se hace acá, antes de elegir apps (todo/por categorías), porque el
+# monitor es parte de la config base del compositor, no una app extra.
+if $INSTALL_HYPRLAND || $INSTALL_NIRI; then
+  detect_monitors
+  choose_monitor_settings
+fi
 
 # -----------------------------
 # 0.5. Noctalia Shell — automático con Hyprland/Niri (sin preguntar)
@@ -401,7 +590,7 @@ DESKTOP_ALL=(libappindicator-gtk3 nwg-drawer nwg-look papirus-icon-theme swaybg 
 CAPTURE_ALL=(grim slurp gpu-screen-recorder cava mpvpaper)
 GAMING_ALL=(wine-staging winetricks protontricks protonplus mangojuice steam gamemode gamescope vulkan-tools)
 APPS_ALL=(telegram-desktop discord brave-origin-bin proton-vpn-gtk-app localsend
-  mission-center fastfetch gnome-firmware gearlever chafa ark)
+  mission-center fastfetch gnome-firmware gearlever chafa xarchiver)
 TERMINAL_ALL=(neovim neovim-qt fzf jq eza yazi)
 SNAPSHOTS_ALL=(btrfs-assistant btrfs-progs snapper snap-pac)
 
@@ -460,17 +649,6 @@ run_step() {
   fi
 }
 
-ask_confirm() {
-  local question="$1"
-  if ! $IS_TTY_CONSOLE; then
-    gum confirm "$question"
-    return
-  fi
-  local ans
-  read -rp "$(strip_emoji "$question") [s/N]: " ans </dev/tty
-  [[ "$ans" =~ ^[sSyY] ]]
-}
-
 confirm_step() {
   local question="$1"
   if $SILENT; then
@@ -519,7 +697,7 @@ run_pacman_progress() {
     # códigos de color ANSI antes de "(n/total)" — hay que sacarlos
     # antes de parsear, si no la línea no matchea y las variables
     # quedan vacías (causaba "printf: : invalid number").
-    last=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | \
+    last=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' |
       grep -E '\([0-9]+/[0-9]+\) (installing|upgrading|reinstalling)' | tail -1)
     if [[ -n "$last" ]]; then
       cur=$(grep -oE '^\([0-9]+' <<<"$last" | tr -d '(')
@@ -532,7 +710,7 @@ run_pacman_progress() {
       [[ -z "$cur" ]] && cur=1
       [[ -z "$tot" || "$tot" -eq 0 ]] && tot=$total_pkgs
       [[ -z "$pkg" ]] && pkg="..."
-      pct=$(( ((cur - 1) * 100 + subpct) / tot ))
+      pct=$((((cur - 1) * 100 + subpct) / tot))
       [[ $pct -gt 100 ]] && pct=100
       [[ $pct -lt 0 ]] && pct=0
       filled=$((pct * bar_len / 100))
@@ -544,7 +722,7 @@ run_pacman_progress() {
       # Todavía no hay nada que contar — pacman sigue resolviendo
       # dependencias, sincronizando bases de datos o descargando.
       # Spinner para que se vea movimiento real desde el arranque.
-      spin_phase_msg=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tail -1 | \
+      spin_phase_msg=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tail -1 |
         grep -oE 'downloading\.\.\.|Synchronizing package databases\.\.\.|resolving dependencies\.\.\.|looking for conflicting packages\.\.\.|Retrieving packages\.\.\.' | tail -1)
       [[ -z "$spin_phase_msg" ]] && spin_phase_msg="preparando..."
       spin_i=$(((spin_i + 1) % ${#spin_chars}))
@@ -783,6 +961,73 @@ run_pacman_progress "🖥️ Instalando apps, configuraciones y utilidades (${#P
 gum style --foreground 82 "✅ Paquetes instalados correctamente."
 
 # -----------------------------
+# 5.1. Configurar Snapper automáticamente (BTRFS)
+# -----------------------------
+# Solo tiene sentido si se eligió instalar snapper y el filesystem raíz
+# es BTRFS (create-config falla si no lo es).
+SNAPPER_CONFIGURED=false
+if command -v snapper &>/dev/null; then
+  ROOT_FSTYPE=$(findmnt -n -o FSTYPE / 2>/dev/null)
+  if [[ "$ROOT_FSTYPE" == "btrfs" ]]; then
+    section "🗂️  Configurando Snapper..."
+
+    if [ ! -f /etc/snapper/configs/root ]; then
+      snapper -c root create-config / >>"$LOG_FILE" 2>&1
+      gum style --foreground 82 "✅ Config 'root' de snapper creada."
+    else
+      gum style --foreground 244 "⚠️ Config 'root' de snapper ya existía, se ajustan sus valores."
+    fi
+
+    # Ajusta los valores conocidos sin pisar el resto del archivo (que
+    # create-config ya llena con comentarios/defaults del paquete).
+    apply_snapper_setting() {
+      local file="$1" key="$2" value="$3"
+      if grep -q "^${key}=" "$file"; then
+        sed -i "s|^${key}=.*|${key}=\"${value}\"|" "$file"
+      else
+        echo "${key}=\"${value}\"" >>"$file"
+      fi
+    }
+
+    SNAPPER_ROOT_CONF="/etc/snapper/configs/root"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "SPACE_LIMIT" "0.5"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "FREE_LIMIT" "0.2"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "SYNC_ACL" "no"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "BACKGROUND_COMPARISON" "yes"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "NUMBER_CLEANUP" "yes"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "NUMBER_MIN_AGE" "3600"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "NUMBER_LIMIT" "30"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "NUMBER_LIMIT_IMPORTANT" "10"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "TIMELINE_CREATE" "yes"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "TIMELINE_CLEANUP" "yes"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "TIMELINE_MIN_AGE" "3600"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "TIMELINE_LIMIT_HOURLY" "8"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "TIMELINE_LIMIT_DAILY" "7"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "TIMELINE_LIMIT_WEEKLY" "4"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "TIMELINE_LIMIT_MONTHLY" "3"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "TIMELINE_LIMIT_QUARTERLY" "0"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "TIMELINE_LIMIT_YEARLY" "0"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "EMPTY_PRE_POST_CLEANUP" "yes"
+    apply_snapper_setting "$SNAPPER_ROOT_CONF" "EMPTY_PRE_POST_MIN_AGE" "3600"
+
+    # /home solo si es su propio subvolumen BTRFS (si comparte el mismo
+    # subvolumen que /, snapper create-config para home fallaría o
+    # duplicaría snapshots innecesariamente).
+    HOME_FSTYPE=$(findmnt -n -o FSTYPE /home 2>/dev/null)
+    if [[ "$HOME_FSTYPE" == "btrfs" ]] && [ ! -f /etc/snapper/configs/home ]; then
+      snapper -c home create-config /home >>"$LOG_FILE" 2>&1
+      gum style --foreground 82 "✅ Config 'home' de snapper creada (con los defaults del paquete)."
+    fi
+
+    log_or_show systemctl enable --now snapper-timeline.timer snapper-cleanup.timer || true
+    SNAPPER_CONFIGURED=true
+    gum style --foreground 82 "✅ Snapper configurado y timers habilitados."
+  else
+    gum style --foreground 244 "⚠️ Filesystem raíz no es BTRFS ($ROOT_FSTYPE) — se omite configuración de Snapper."
+  fi
+fi
+
+# -----------------------------
 # 6. Función auxiliar para instalar paquetes AUR sin helper
 # -----------------------------
 run_step "📦 Instalando base-devel y git..." pacman -S --noconfirm --needed base-devel git
@@ -990,11 +1235,50 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ZSHRC_BACKUP="$SCRIPT_DIR/respaldo/.zshrc"
+
 if [ -f "$ZSHRC_BACKUP" ]; then
   cp "$ZSHRC_BACKUP" "$ZSHRC"
   gum style --foreground 82 "✅ .zshrc restaurado desde respaldo"
 else
-  gum style --foreground 244 "⚠️ No se encontró .zshrc en respaldo, se mantiene el generado por Oh My Zsh"
+  gum style --foreground 244 "⚠️ No se encontró .zshrc en respaldo — generando uno por defecto (no depende del repo)"
+
+  # $ZSHRC en este punto es el generado por el instalador de Oh My Zsh.
+  # Ajustamos tema y plugins ahí mismo (sed) en vez de pisar todo el
+  # archivo, para no perder lo que Oh My Zsh ya dejó configurado.
+  if [ -f "$ZSHRC" ]; then
+    sed -i 's/^ZSH_THEME=.*/ZSH_THEME="geoffgarside"/' "$ZSHRC"
+    sed -i 's/^plugins=(.*/plugins=(git sudo)/' "$ZSHRC"
+  fi
+
+  CUSTOM_BLOCK_MARK="### CUSTOM PLUGINS ###"
+  if ! grep -qF "$CUSTOM_BLOCK_MARK" "$ZSHRC" 2>/dev/null; then
+    cat >>"$ZSHRC" <<'EOF'
+
+# Preferred editor for local and remote sessions
+export EDITOR=nvim
+
+### CUSTOM PLUGINS ###
+source /usr/share/zsh/plugins/zsh-autocomplete/zsh-autocomplete.plugin.zsh
+source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.plugin.zsh
+source /usr/share/zsh/plugins/zsh-history-substring-search/zsh-history-substring-search.zsh
+source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.plugin.zsh
+
+# Better ls
+alias ls='eza -a --icons=always'
+alias y='yazi'
+alias icat="kitten icat"
+alias svim='sudo nvim "+set number"'
+### END CUSTOM PLUGINS ###
+
+export QT_QPA_PLATFORMTHEME=qt6ct
+
+# apps
+fastfetch
+EOF
+    gum style --foreground 82 "✅ .zshrc por defecto generado (tema, plugins, alias svim y más)"
+  else
+    gum style --foreground 244 "⚠️ El bloque custom ya existía en .zshrc, no se duplicó"
+  fi
 fi
 
 chown "$REAL_USER:$REAL_USER" "$ZSHRC"
@@ -1050,6 +1334,31 @@ else
       cp -r "$SRC"/. /usr/local/bin/
       chmod +x /usr/local/bin/*
       gum style --foreground 82 "  ✅ scripts → /usr/local/bin/"
+
+      # Si snapper quedó configurado y el script de entradas de boot
+      # está entre los que se acaban de copiar, armamos el hook de
+      # pacman para que se regeneren solas en cada transacción.
+      if $SNAPPER_CONFIGURED && command -v arch-snapper-boot-entries &>/dev/null; then
+        SNAPPER_HOOK_DIR="/etc/pacman.d/hooks"
+        mkdir -p "$SNAPPER_HOOK_DIR"
+        cat >"$SNAPPER_HOOK_DIR/95-snapper-boot-entries.hook" <<'EOF'
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = *
+
+[Action]
+Description = Actualizando entradas de arranque de snapshots (snapper)...
+When = PostTransaction
+Exec = /usr/bin/env bash -c 'command -v arch-snapper-boot-entries >/dev/null && arch-snapper-boot-entries || true'
+EOF
+        gum style --foreground 82 "  ✅ Hook de pacman creado: las entradas de boot se regeneran solas en cada transacción."
+      elif $SNAPPER_CONFIGURED; then
+        gum style --foreground 244 "  ⚠️ Snapper está configurado pero no se encontró arch-snapper-boot-entries en /usr/local/bin — revisá que esté en respaldo/scripts/."
+      fi
+
       continue
     fi
 
@@ -1088,8 +1397,8 @@ else
       for timer_file in "$USER_SYSTEMD_DIR"/*.timer; do
         timer_name=$(basename "$timer_file")
         sudo -u "$REAL_USER" env XDG_RUNTIME_DIR="/run/user/$(id -u "$REAL_USER")" \
-          systemctl --user enable --now "$timer_name" && \
-          gum style --foreground 82 "  ✅ $timer_name activado." || \
+          systemctl --user enable --now "$timer_name" &&
+          gum style --foreground 82 "  ✅ $timer_name activado." ||
           gum style --foreground 244 "  ⚠️  No se pudo activar $timer_name."
       done
       shopt -u nullglob
@@ -1137,6 +1446,31 @@ else
     DEST="$CONFIG_DIR/$folder"
     rm -rf "$DEST"
     cp -r "$SRC" "$DEST"
+
+    # Si el archivo restaurado tiene el marcador AUTO_MONITOR_BLOCK
+    # (hyprland.lua o config.kdl), lo reemplazamos acá con el monitor
+    # que se detectó/eligió al principio del script. Esto corre siempre
+    # (no solo en instalación limpia) porque el respaldo se restaura
+    # siempre por defecto.
+    if [ "$folder" = "hypr" ] && [ -f "$DEST/hyprland.lua" ] && grep -q "AUTO_MONITOR_BLOCK" "$DEST/hyprland.lua"; then
+      HYPR_MONITOR_BLOCK=$(generate_hypr_monitor_block)
+      awk -v block="$HYPR_MONITOR_BLOCK" '
+        /AUTO_MONITOR_BLOCK/ { print block; next }
+        { print }
+      ' "$DEST/hyprland.lua" >"$DEST/hyprland.lua.tmp"
+      mv "$DEST/hyprland.lua.tmp" "$DEST/hyprland.lua"
+      gum style --foreground 82 "  ✅ Monitor(es) aplicado(s) a $DEST/hyprland.lua"
+    fi
+    if [ "$folder" = "niri" ] && [ -f "$DEST/config.kdl" ] && grep -q "AUTO_MONITOR_BLOCK" "$DEST/config.kdl"; then
+      NIRI_MONITOR_BLOCK=$(generate_niri_output_block)
+      awk -v block="$NIRI_MONITOR_BLOCK" '
+        /AUTO_MONITOR_BLOCK/ { print block; next }
+        { print }
+      ' "$DEST/config.kdl" >"$DEST/config.kdl.tmp"
+      mv "$DEST/config.kdl.tmp" "$DEST/config.kdl"
+      gum style --foreground 82 "  ✅ Monitor(es) aplicado(s) a $DEST/config.kdl"
+    fi
+
     chown -R "$REAL_USER:$REAL_USER" "$DEST"
     gum style --foreground 82 "  ✅ $folder → $CONFIG_DIR/"
   done
@@ -1174,11 +1508,22 @@ fi
 #       no debe pisarlos.
 # -----------------------------
 if $INSTALL_HYPRLAND && ! $RESTORE_HYPR_CONFIG; then
+  HYPR_DEST_DIR="$CONFIG_DIR/hypr"
+  mkdir -p "$HYPR_DEST_DIR"
   if [[ -n "$HYPRLAND_LUA_SRC" ]]; then
     section "🌙 Instalación limpia de Hyprland: aplicando hyprland.lua provisto por --hyprland-lua..."
-    HYPR_DEST_DIR="$CONFIG_DIR/hypr"
-    mkdir -p "$HYPR_DEST_DIR"
     cp "$HYPRLAND_LUA_SRC" "$HYPR_DEST_DIR/hyprland.lua"
+
+    if grep -q "AUTO_MONITOR_BLOCK" "$HYPR_DEST_DIR/hyprland.lua"; then
+      HYPR_MONITOR_BLOCK=$(generate_hypr_monitor_block)
+      awk -v block="$HYPR_MONITOR_BLOCK" '
+        /AUTO_MONITOR_BLOCK/ { print block; next }
+        { print }
+      ' "$HYPR_DEST_DIR/hyprland.lua" >"$HYPR_DEST_DIR/hyprland.lua.tmp"
+      mv "$HYPR_DEST_DIR/hyprland.lua.tmp" "$HYPR_DEST_DIR/hyprland.lua"
+      gum style --foreground 82 "✅ Monitor(es) detectado(s) agregado(s) a $HYPR_DEST_DIR/hyprland.lua"
+    fi
+
     chown -R "$REAL_USER:$REAL_USER" "$HYPR_DEST_DIR"
     gum style --foreground 82 "✅ $HYPR_DEST_DIR/hyprland.lua actualizado desde $HYPRLAND_LUA_SRC"
   else
@@ -1194,6 +1539,20 @@ if $INSTALL_NIRI && ! $RESTORE_NIRI_CONFIG; then
     NIRI_DEST_DIR="$CONFIG_DIR/niri"
     mkdir -p "$NIRI_DEST_DIR"
     cp "$NIRI_KDL_SRC" "$NIRI_DEST_DIR/config.kdl"
+
+    if grep -q "AUTO_MONITOR_BLOCK" "$NIRI_DEST_DIR/config.kdl"; then
+      NIRI_MONITOR_BLOCK=$(generate_niri_output_block)
+      # Reemplaza la línea del marcador por el bloque generado.
+      # Se usa un archivo temporal porque el bloque puede tener varias
+      # líneas (varios monitores), lo cual sed -i no maneja bien inline.
+      awk -v block="$NIRI_MONITOR_BLOCK" '
+        /AUTO_MONITOR_BLOCK/ { print block; next }
+        { print }
+      ' "$NIRI_DEST_DIR/config.kdl" >"$NIRI_DEST_DIR/config.kdl.tmp"
+      mv "$NIRI_DEST_DIR/config.kdl.tmp" "$NIRI_DEST_DIR/config.kdl"
+      gum style --foreground 82 "✅ Monitor(es) detectado(s) agregado(s) a $NIRI_DEST_DIR/config.kdl"
+    fi
+
     chown -R "$REAL_USER:$REAL_USER" "$NIRI_DEST_DIR"
     gum style --foreground 82 "✅ $NIRI_DEST_DIR/config.kdl actualizado desde $NIRI_KDL_SRC"
   else
@@ -1234,8 +1593,9 @@ gum style --border rounded --border-foreground 25 --padding "1 3" --margin "1 0"
    Luego: grub-mkconfig -o /boot/grub/grub.cfg
 
 🔵 Snapper:
-   snapper -c root create-config /
-   snapper -c home create-config /home
+   Configurado automáticamente si el filesystem raíz es BTRFS (config
+   'root' con tus valores, timers de timeline/cleanup habilitados). No
+   hace falta correrlo a mano.
 
 🔵 SDDM y SilentSDDM se activarán en el próximo arranque.
 EOF
