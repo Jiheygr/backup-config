@@ -13,13 +13,9 @@
 ---- MONITORS ----
 ------------------
 
--- See https://wiki.hypr.land/Configuring/Basics/Monitors/
-hl.monitor({
-	output = "eDP-1",
-	mode = "1920x1080@360.04",
-	position = "0x0",
-	scale = 1.0,
-})
+-- AUTO_MONITOR_BLOCK: el instalador reemplaza esta línea con el/los
+-- bloque(s) hl.monitor(...) detectados vía EDID en la máquina donde se
+-- instala. Si no detecta nada, Hyprland usa auto-detect por defecto.
 
 ---------------------
 ---- MY PROGRAMS ----
