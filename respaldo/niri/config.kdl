@@ -2586,7 +2586,7 @@ binds {
     // moving the mouse or pressing any other key.
     Mod+Shift+P { power-off-monitors; }
     Mod+B { spawn "brave-origin"; }
-    Mod+F1 { spawn-sh "/home/jihey/.config/niri/scripts/power-toggle.sh"; }
+    Mod+F1 { spawn-sh "$HOME/.config/niri/scripts/power-toggle.sh"; }
     Mod+Delete { spawn "noctalia" "msg" "panel-toggle" "session"; }
     Mod+D { spawn "discord"; }
     Mod+A { spawn "pamac-manager"; }
@@ -2608,17 +2608,10 @@ environment {
     QT_QPA_PLATFORMTHEME "qt6ct"
     QT_QPA_PLATFORM "wayland"
 }
-output "eDP-1" {
-    mode "1920x1080@360.041"
-
-    scale 1.0
-
-    transform "normal"
-    position x=0 y=0
-
-    variable-refresh-rate
-
-}
+// AUTO_MONITOR_BLOCK: el instalador reemplaza esta línea con el/los
+// bloque(s) "output" detectados vía EDID en la máquina donde se instala.
+// Si el instalador no detecta nada, niri usa auto-detect (comportamiento
+// por defecto, sin este bloque).
 
 window-rule {
     draw-border-with-background false
