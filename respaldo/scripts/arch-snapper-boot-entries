@@ -67,12 +67,15 @@ elif [[ -f /boot/amd-ucode.img ]]; then
 fi
 
 # ── Entrada de Windows (chainload) ──────────────────────────────────
-# UUID de la partición ESP del disco de Windows (nvme0n1p1). Si el disco
-# no está conectado (ej. lo desenchufaste), simplemente se saltea esto
-# sin romper el resto del script.
-WINDOWS_ESP_UUID="6034-C9E8"
+# UUID de la partición ESP del disco de Windows (nvme0n1p1). Configurable
+# vía variable de entorno para no hardcodear el UUID de una máquina
+# específica; si no se define, simplemente se omite esta entrada.
+WINDOWS_ESP_UUID="${WINDOWS_ESP_UUID:-}"
 
 _ensure_windows_entry() {
+    if [[ -z "$WINDOWS_ESP_UUID" ]]; then
+        return
+    fi
     local winesp_dev="/dev/disk/by-uuid/${WINDOWS_ESP_UUID}"
 
     if [[ ! -e "$winesp_dev" ]]; then
@@ -135,27 +138,41 @@ for NUM in "${SNAPSHOTS[@]}"; do
     for KERNEL in "${KERNELS[@]}"; do
         SUFFIX="${KERNEL#vmlinuz-}"
         INITRAMFS="initramfs-${SUFFIX}.img"
+        UKI_PATH="/boot/EFI/Linux/arch-${SUFFIX}.efi"
 
-        # Si a este kernel le falta el initramfs, lo saltamos (evita entradas rotas)
-        if [[ ! -f "/boot/${INITRAMFS}" ]]; then
-            echo "⚠️  Salteando ${KERNEL}: no existe /boot/${INITRAMFS}" >&2
-            continue
+        if [[ -n "$SNAP_WHEN" ]]; then
+            TITLE="Snapshot #${NUM} (${SUFFIX}) — ${SNAP_WHEN}"
+        else
+            TITLE="Snapshot #${NUM} (${SUFFIX})"
         fi
 
-        {
-            if [[ -n "$SNAP_WHEN" ]]; then
-                echo "title   CachyOS Snapshot #${NUM} (${SUFFIX}) — ${SNAP_WHEN}"
-            else
-                echo "title   CachyOS Snapshot #${NUM} (${SUFFIX})"
-            fi
-            echo "linux   /${KERNEL}"
-
-            [[ -n "$MICROCODE" ]] && echo "initrd  /${MICROCODE}"
-
-            echo "initrd  /${INITRAMFS}"
-            echo "options root=UUID=${UUID} rootflags=subvol=${SNAP_PATH} ${OPTIONS}"
-            echo "sort-key b-snapshot-${NUM}-${SUFFIX}"
-        } > "${ENTRIES_DIR}/snapshot-${NUM}-${SUFFIX}.conf"
+        if [[ -f "$UKI_PATH" ]]; then
+            # Sistema con UKI (Unified Kernel Image): no hay vmlinuz/initrd
+            # sueltos, así que apuntamos directo al .efi ya armado y
+            # sobreescribimos rootflags vía "options" (systemd-boot agrega
+            # estos parámetros al cmdline embebido en la UKI; el último
+            # valor de un parámetro repetido, como rootflags=, es el que
+            # aplica al bootear).
+            {
+                echo "title   ${TITLE}"
+                echo "efi     /EFI/Linux/arch-${SUFFIX}.efi"
+                echo "options rootflags=subvol=${SNAP_PATH}"
+                echo "sort-key b-snapshot-${NUM}-${SUFFIX}"
+            } > "${ENTRIES_DIR}/snapshot-${NUM}-${SUFFIX}.conf"
+        elif [[ -f "/boot/${INITRAMFS}" ]]; then
+            # Sistema clásico (vmlinuz + initramfs sueltos, sin UKI).
+            {
+                echo "title   ${TITLE}"
+                echo "linux   /${KERNEL}"
+                [[ -n "$MICROCODE" ]] && echo "initrd  /${MICROCODE}"
+                echo "initrd  /${INITRAMFS}"
+                echo "options root=UUID=${UUID} rootflags=subvol=${SNAP_PATH} ${OPTIONS}"
+                echo "sort-key b-snapshot-${NUM}-${SUFFIX}"
+            } > "${ENTRIES_DIR}/snapshot-${NUM}-${SUFFIX}.conf"
+        else
+            echo "⚠️  Salteando ${KERNEL}: no se encontró ni UKI (${UKI_PATH}) ni initramfs (/boot/${INITRAMFS})" >&2
+            continue
+        fi
     done
 done
 
