@@ -140,8 +140,8 @@ IS_TTY_CONSOLE=false
 strip_emoji() {
   sed -e 's/🔊//g; s/🤫//g; s/🌊//g; s/🌀//g; s/🔀//g; s/🟪//g; s/📦//g; s/✅//g; s/❌//g;
           s/🧹//g; s/📂//g; s/🎁//g; s/🔍//g; s/🖥️//g; s/📸//g; s/🎮//g;
-          s/💬//g; s/🐚//g; s/🔐//g; s/🗂️//g; s/🎨//g; s/🐧//g; s/🔎//g' <<<"$1" |
-    sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
+          s/💬//g; s/🐚//g; s/🔐//g; s/🗂️//g; s/🎨//g; s/🐧//g; s/🔎//g' <<<"$1" \
+    | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
 }
 
 # Selección de UNA opción. Usa gum en terminal gráfica, o un menú
@@ -275,7 +275,7 @@ detect_monitors() {
 
     local drm_path conn status edid_path info res refresh
     drm_path=$(dirname "$status_path")
-    conn=$(basename "$drm_path" | sed -E 's/^card[0-9]+-//') # DP-1, HDMI-A-1, eDP-1...
+    conn=$(basename "$drm_path" | sed -E 's/^card[0-9]+-//')  # DP-1, HDMI-A-1, eDP-1...
     status=$(cat "$status_path" 2>/dev/null)
     [[ "$status" == "connected" ]] || continue
 
@@ -488,6 +488,29 @@ fi
 sleep 1
 
 # -----------------------------
+# 0.2.1. ¿Sos el dueño del repo o alguien probando el script?
+# -----------------------------
+# Controla dos cosas: (1) si los respaldos de apps se restauran TODOS
+# automáticamente sin preguntar app por app (dueño) o si se pregunta
+# limpio/restaurar por cada una (cualquier otra persona); y (2) si los
+# binds de mouse de keyd (específicos de TU hardware) se aplican solos
+# o se ofrecen como opcionales.
+OWNER_CHOICE=$(ask_choice "¿Quién está corriendo este instalador?" \
+  "👤 Soy yo (el dueño del repo) — restaurar todos mis respaldos automático" \
+  "🌍 Soy otra persona probando el script — preguntame app por app")
+
+case "$OWNER_CHOICE" in
+*"Soy yo"*) OWNER_MODE=true ;;
+*) OWNER_MODE=false ;;
+esac
+if $OWNER_MODE; then
+  gum style --foreground 244 "Modo dueño: respaldos se restauran todos por defecto."
+else
+  gum style --foreground 244 "Modo invitado: se va a preguntar limpio/restaurar app por app."
+fi
+sleep 1
+
+# -----------------------------
 # 0.3. Selección de compositor
 # -----------------------------
 COMP=$(ask_choice "¿Qué querés instalar?" \
@@ -582,37 +605,52 @@ RESTORE_NIRI_CONFIG=false
 RESTORE_KDE_CONFIG=false
 
 if $INSTALL_KDE; then
-  KDE_RESTORE_CHOICE=$(ask_choice "KDE Plasma: ¿limpio o restaurar desde respaldo/kde?" \
-    "🧹 Limpio" \
-    "📂 Restaurar respaldo/kde")
-  case "$KDE_RESTORE_CHOICE" in
-  *Restaurar*) RESTORE_KDE_CONFIG=true ;;
-  *) RESTORE_KDE_CONFIG=false ;;
-  esac
+  if $OWNER_MODE && [ -d "$BACKUP_DIR/kde" ]; then
+    RESTORE_KDE_CONFIG=true
+  elif ! $OWNER_MODE; then
+    KDE_RESTORE_CHOICE=$(ask_choice "KDE Plasma: ¿limpio o restaurar desde respaldo/kde?" \
+      "🧹 Limpio" \
+      "📂 Restaurar respaldo/kde")
+    case "$KDE_RESTORE_CHOICE" in
+    *Restaurar*) RESTORE_KDE_CONFIG=true ;;
+    *) RESTORE_KDE_CONFIG=false ;;
+    esac
+  fi
 fi
 
 # Hyprland/Niri: igual que cualquier otra app, solo se pregunta si
-# existe respaldo/hypr o respaldo/niri. Si no existe, es limpio directo
-# (y ahí --hyprland-lua/--niri-kdl sí se aplican, ver sección 10.1).
+# existe respaldo/hypr o respaldo/niri (y solo en modo invitado — en
+# modo dueño se restaura directo sin preguntar). Si no existe, es
+# limpio directo (y ahí --hyprland-lua/--niri-kdl sí se aplican, ver
+# sección 10.1).
 if $INSTALL_HYPRLAND && [ -d "$BACKUP_DIR/hypr" ]; then
-  HYPR_RESTORE_CHOICE=$(ask_choice "Hyprland: ¿limpio o restaurar desde respaldo/hypr?" \
-    "🧹 Limpio" \
-    "📂 Restaurar respaldo/hypr")
-  case "$HYPR_RESTORE_CHOICE" in
-  *Restaurar*) RESTORE_HYPR_CONFIG=true ;;
-  *) RESTORE_HYPR_CONFIG=false ;;
-  esac
+  if $OWNER_MODE; then
+    RESTORE_HYPR_CONFIG=true
+  else
+    HYPR_RESTORE_CHOICE=$(ask_choice "Hyprland: ¿limpio o restaurar desde respaldo/hypr?" \
+      "🧹 Limpio" \
+      "📂 Restaurar respaldo/hypr")
+    case "$HYPR_RESTORE_CHOICE" in
+    *Restaurar*) RESTORE_HYPR_CONFIG=true ;;
+    *) RESTORE_HYPR_CONFIG=false ;;
+    esac
+  fi
 fi
 
 if $INSTALL_NIRI && [ -d "$BACKUP_DIR/niri" ]; then
-  NIRI_RESTORE_CHOICE=$(ask_choice "Niri: ¿limpio o restaurar desde respaldo/niri?" \
-    "🧹 Limpio" \
-    "📂 Restaurar respaldo/niri")
-  case "$NIRI_RESTORE_CHOICE" in
-  *Restaurar*) RESTORE_NIRI_CONFIG=true ;;
-  *) RESTORE_NIRI_CONFIG=false ;;
-  esac
+  if $OWNER_MODE; then
+    RESTORE_NIRI_CONFIG=true
+  else
+    NIRI_RESTORE_CHOICE=$(ask_choice "Niri: ¿limpio o restaurar desde respaldo/niri?" \
+      "🧹 Limpio" \
+      "📂 Restaurar respaldo/niri")
+    case "$NIRI_RESTORE_CHOICE" in
+    *Restaurar*) RESTORE_NIRI_CONFIG=true ;;
+    *) RESTORE_NIRI_CONFIG=false ;;
+    esac
+  fi
 fi
+
 # -----------------------------
 # 0.8. Categorías de apps — una por una, con detección de instalado
 # -----------------------------
@@ -662,7 +700,12 @@ ask_app_restore_choices() {
   local pkg
   for pkg in "$@"; do
     [[ -d "$BACKUP_DIR/$pkg" ]] || continue
-    [[ -n "${APP_RESTORE_CHOICE[$pkg]:-}" ]] && continue # ya preguntado
+    [[ -n "${APP_RESTORE_CHOICE[$pkg]:-}" ]] && continue  # ya preguntado
+
+    if $OWNER_MODE; then
+      APP_RESTORE_CHOICE[$pkg]="restore"
+      continue
+    fi
 
     local choice
     choice=$(ask_choice "📂 ${pkg}: encontré respaldo/${pkg} — ¿qué querés usar?" \
@@ -684,13 +727,29 @@ SEL_SNAPSHOTS=()
 
 DESKTOP_ALL=(libappindicator-gtk3 nwg-drawer nwg-look papirus-icon-theme swaybg swaync
   thunar tumbler ffmpegthumbnailer wl-clip-persist wl-clipboard cliphist
-  adw-gtk-theme qt6ct gsettings-qt6)
+  adw-gtk-theme qt6ct-kde gsettings-qt6)
 CAPTURE_ALL=(grim slurp gpu-screen-recorder cava mpvpaper)
 GAMING_ALL=(wine-staging winetricks protontricks protonplus mangojuice steam gamemode gamescope vulkan-tools)
-APPS_ALL=(telegram-desktop discord brave-origin-bin proton-vpn-gtk-app localsend
-  mission-center fastfetch gnome-firmware gearlever chafa xarchiver octopi
-  visual-studio-code-bin sublime-text-4 geany kate)
-TERMINAL_ALL=(neovim neovim-qt fzf jq eza yazi vim micro helix emacs-nox)
+
+# Base original tuya + extras que se agregaron después para hacer el
+# script más "universal" (editores, etc.). En OWNER_MODE se omiten los
+# extras — solo se instala lo que ya tenías. En modo invitado se
+# ofrecen ambos.
+APPS_ALL_BASE=(telegram-desktop discord brave-origin-bin proton-vpn-gtk-app localsend
+  mission-center fastfetch gnome-firmware gearlever chafa xarchiver)
+APPS_ALL_EXTRA=(visual-studio-code-bin vscodium-bin sublime-text-4 geany kate)
+
+TERMINAL_ALL_BASE=(neovim neovim-qt fzf jq eza yazi)
+TERMINAL_ALL_EXTRA=(vim micro helix emacs-nox)
+
+if $OWNER_MODE; then
+  APPS_ALL=("${APPS_ALL_BASE[@]}")
+  TERMINAL_ALL=("${TERMINAL_ALL_BASE[@]}")
+else
+  APPS_ALL=("${APPS_ALL_BASE[@]}" "${APPS_ALL_EXTRA[@]}")
+  TERMINAL_ALL=("${TERMINAL_ALL_BASE[@]}" "${TERMINAL_ALL_EXTRA[@]}")
+fi
+
 SNAPSHOTS_ALL=(btrfs-assistant btrfs-progs snapper snap-pac)
 
 # Emulador de terminal — pregunta de opción única, no checklist (solo
@@ -700,10 +759,23 @@ TERMINAL_EMU_CHOICE=$(ask_choice "🖥️  ¿Qué emulador de terminal querés i
 SEL_TERMINAL_EMU="$TERMINAL_EMU_CHOICE"
 gum style --foreground 82 "  ✅ Emulador de terminal: $SEL_TERMINAL_EMU"
 
-# Gestor de paquetes gráfico (un solo paquete → sí/no, no picker)
-show_already_installed pamac-aur
-PAMAC_CHOICE=$(ask_choice "📦 ¿Instalar el gestor de paquetes gráfico (pamac)?" "✅ Sí" "❌ No")
-grep -q "Sí" <<<"$PAMAC_CHOICE" && INSTALL_CAT_PAMAC=true
+# Gestor de paquetes gráfico. Octopi es un agregado nuevo (no estaba en
+# tu setup original) — en OWNER_MODE ni se ofrece como opción.
+INSTALL_CAT_PAMAC=false
+INSTALL_CAT_OCTOPI=false
+if $OWNER_MODE; then
+  show_already_installed pamac-aur
+  PKG_MANAGER_CHOICE=$(ask_choice "📦 ¿Instalar el gestor de paquetes gráfico (pamac)?" "✅ Sí" "❌ No")
+  grep -q "Sí" <<<"$PKG_MANAGER_CHOICE" && INSTALL_CAT_PAMAC=true
+else
+  show_already_installed pamac-aur octopi
+  PKG_MANAGER_CHOICE=$(ask_choice "📦 ¿Qué gestor de paquetes gráfico querés instalar?" \
+    "Pamac" "Octopi" "Ninguno")
+  case "$PKG_MANAGER_CHOICE" in
+  Pamac) INSTALL_CAT_PAMAC=true ;;
+  Octopi) INSTALL_CAT_OCTOPI=true ;;
+  esac
+fi
 
 pick_apps_in_category "🖥️  Utilidades de escritorio" "${DESKTOP_ALL[@]}"
 SEL_DESKTOP=("${SEL_RESULT[@]}")
@@ -799,7 +871,7 @@ run_pacman_progress() {
     # códigos de color ANSI antes de "(n/total)" — hay que sacarlos
     # antes de parsear, si no la línea no matchea y las variables
     # quedan vacías (causaba "printf: : invalid number").
-    last=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' |
+    last=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | \
       grep -E '\([0-9]+/[0-9]+\) (installing|upgrading|reinstalling)' | tail -1)
     if [[ -n "$last" ]]; then
       cur=$(grep -oE '^\([0-9]+' <<<"$last" | tr -d '(')
@@ -812,7 +884,7 @@ run_pacman_progress() {
       [[ -z "$cur" ]] && cur=1
       [[ -z "$tot" || "$tot" -eq 0 ]] && tot=$total_pkgs
       [[ -z "$pkg" ]] && pkg="..."
-      pct=$((((cur - 1) * 100 + subpct) / tot))
+      pct=$(( ((cur - 1) * 100 + subpct) / tot ))
       [[ $pct -gt 100 ]] && pct=100
       [[ $pct -lt 0 ]] && pct=0
       filled=$((pct * bar_len / 100))
@@ -824,7 +896,7 @@ run_pacman_progress() {
       # Todavía no hay nada que contar — pacman sigue resolviendo
       # dependencias, sincronizando bases de datos o descargando.
       # Spinner para que se vea movimiento real desde el arranque.
-      spin_phase_msg=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tail -1 |
+      spin_phase_msg=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tail -1 | \
         grep -oE 'downloading\.\.\.|Synchronizing package databases\.\.\.|resolving dependencies\.\.\.|looking for conflicting packages\.\.\.|Retrieving packages\.\.\.' | tail -1)
       [[ -z "$spin_phase_msg" ]] && spin_phase_msg="preparando..."
       spin_i=$(((spin_i + 1) % ${#spin_chars}))
@@ -907,6 +979,7 @@ SUMMARY_LINES+=("🖥️  Terminal: $SEL_TERMINAL_EMU")
 
 CAT_SUMMARY=()
 $INSTALL_CAT_PAMAC && CAT_SUMMARY+=("pamac")
+$INSTALL_CAT_OCTOPI && CAT_SUMMARY+=("octopi")
 [[ ${#SEL_DESKTOP[@]} -gt 0 ]] && CAT_SUMMARY+=("escritorio (${#SEL_DESKTOP[@]})")
 [[ ${#SEL_CAPTURE[@]} -gt 0 ]] && CAT_SUMMARY+=("capturas (${#SEL_CAPTURE[@]})")
 [[ ${#SEL_GAMING[@]} -gt 0 ]] && CAT_SUMMARY+=("gaming (${#SEL_GAMING[@]})")
@@ -921,7 +994,7 @@ else
     IFS=,
     echo "${CAT_SUMMARY[*]}"
   )")
-fi
+  fi
 
 gum style --border rounded --border-foreground 25 --padding "1 3" --margin "1 0" \
   "📋 RESUMEN DE INSTALACIÓN" "" "${SUMMARY_LINES[@]}"
@@ -990,7 +1063,6 @@ PACMAN_PKGS=(
   xorg-xinit
   avahi
   firewalld
-  plymouth
   os-prober
   imagemagick
   python
@@ -1042,6 +1114,7 @@ if $INSTALL_KDE; then
 fi
 
 $INSTALL_CAT_PAMAC && PACMAN_PKGS+=(pamac)
+$INSTALL_CAT_OCTOPI && PACMAN_PKGS+=(octopi)
 
 PACMAN_PKGS+=("$SEL_TERMINAL_EMU")
 
@@ -1084,6 +1157,75 @@ run_pacman_progress "🖥️ Instalando apps, configuraciones y utilidades (${#P
   "${PACMAN_PKGS[@]}"
 
 gum style --foreground 82 "✅ Paquetes instalados correctamente."
+
+# -----------------------------
+# 5.0.1. Aplicar tema por defecto (Papirus + adw-gtk3-dark + qt6ct)
+# -----------------------------
+# Instalar los paquetes de tema no alcanza si nadie le dice a GTK/Qt
+# que los use. Esto corre ANTES de restaurar respaldo/ (sección 10), a
+# propósito: si tenés respaldo/qt6ct, respaldo/gtk-3.0, etc., esos van
+# a pisar lo que se escribe acá — esto es solo el fallback razonable
+# para instalación limpia, no toca lo tuyo si existe.
+section "🎨 Aplicando tema por defecto (Papirus + adw-gtk3-dark + qt6ct)..."
+
+# GTK3 / GTK4
+if pacman -Qq papirus-icon-theme &>/dev/null && pacman -Qq adw-gtk-theme &>/dev/null; then
+  for gtkver in gtk-3.0 gtk-4.0; do
+    GTK_CONF_DIR="$USER_HOME/.config/$gtkver"
+    sudo -u "$REAL_USER" mkdir -p "$GTK_CONF_DIR"
+    cat >"$GTK_CONF_DIR/settings.ini" <<'EOF'
+[Settings]
+gtk-theme-name=adw-gtk3-dark
+gtk-icon-theme-name=Papirus-Dark
+gtk-application-prefer-dark-theme=1
+EOF
+    chown "$REAL_USER:$REAL_USER" "$GTK_CONF_DIR/settings.ini"
+  done
+
+  # dconf, para las apps GTK que leen gsettings en vez de settings.ini.
+  if command -v dconf &>/dev/null; then
+    sudo -u "$REAL_USER" dconf write /org/gnome/desktop/interface/gtk-theme "'adw-gtk3-dark'"
+    sudo -u "$REAL_USER" dconf write /org/gnome/desktop/interface/icon-theme "'Papirus-Dark'"
+    sudo -u "$REAL_USER" dconf write /org/gnome/desktop/interface/color-scheme "'prefer-dark'"
+  fi
+
+  # Si Noctalia está instalado, este es el mismo apply.sh que dispara
+  # el toggle "Settings → Templates → GTK 3/4": importa noctalia.css a
+  # gtk.css y sincroniza adw-gtk3/color-scheme. Lo corremos directo acá
+  # para no depender de que abras Noctalia y actives el toggle a mano.
+  # Ref: https://docs.noctalia.dev/v5/templates/official/gtk-qt/
+  for GTK_APPLY_SH in /usr/share/noctalia/assets/templates/gtk/apply.sh /usr/local/share/noctalia/assets/templates/gtk/apply.sh; do
+    if [ -x "$GTK_APPLY_SH" ]; then
+      sudo -u "$REAL_USER" bash "$GTK_APPLY_SH" dark >>"$LOG_FILE" 2>&1 || true
+      gum style --foreground 82 "✅ apply.sh de Noctalia (GTK) ejecutado — sync de adw-gtk3/color-scheme aplicado."
+      break
+    fi
+  done
+
+  gum style --foreground 82 "✅ GTK3/GTK4: Papirus-Dark + adw-gtk3-dark aplicados."
+else
+  gum style --foreground 244 "⏭️  Papirus/adw-gtk-theme no están instalados (no se eligieron en 'Utilidades de escritorio') — se omite el tema GTK."
+fi
+
+# Qt6 (vía qt6ct-kde — la variante con parches KDE que pide Noctalia
+# para que apps KDE como Dolphin lean bien el color scheme; qt6ct a
+# secas puede mostrar colores incorrectos en esas apps).
+if pacman -Qq qt6ct-kde &>/dev/null || pacman -Qq qt6ct &>/dev/null; then
+  QT6CT_DIR="$USER_HOME/.config/qt6ct"
+  sudo -u "$REAL_USER" mkdir -p "$QT6CT_DIR"
+  cat >"$QT6CT_DIR/qt6ct.conf" <<'EOF'
+[Appearance]
+icon_theme=Papirus-Dark
+
+[Interface]
+activate_item_on_single_click=1
+EOF
+  chown -R "$REAL_USER:$REAL_USER" "$QT6CT_DIR"
+  gum style --foreground 82 "✅ qt6ct: icon_theme=Papirus-Dark aplicado."
+  gum style --foreground 244 "   ⚠️ El color scheme 'noctalia' de qt6ct NO se puede seleccionar por script de forma confiable: corré 'qt6ct' una vez, pestaña Appearance → Color scheme → elegí 'noctalia' (o 'noctalia (KColorScheme)' si usás apps KDE) → Apply. Esto solo hace falta una vez por instalación limpia; si restauraste respaldo/qt6ct, este paso ya viene resuelto."
+else
+  gum style --foreground 244 "⏭️  qt6ct/qt6ct-kde no está instalado (no se eligió en 'Utilidades de escritorio') — se omite el tema Qt."
+fi
 
 # -----------------------------
 # 5.1. Configurar Snapper automáticamente (BTRFS)
@@ -1412,11 +1554,25 @@ gum style --foreground 82 "✅ Shell cambiado a Zsh para $REAL_USER"
 # -----------------------------
 # 9.1. Configurar keyd
 # -----------------------------
-section "⌨️  Configurando keyd..."
+APPLY_KEYD_CONFIG=false
+if $OWNER_MODE; then
+  APPLY_KEYD_CONFIG=true
+else
+  KEYD_CHOICE=$(ask_choice "⌨️  keyd trae remapeos de botones de mouse pensados para el hardware específico del dueño (IDs de dispositivo fijos) — ¿igual querés aplicarlos?" \
+    "❌ No, omitir (keyd queda instalado, sin config custom)" \
+    "⚠️  Sí, aplicar igual (puede no corresponder a tu mouse/teclado)")
+  case "$KEYD_CHOICE" in
+  *"Sí"*) APPLY_KEYD_CONFIG=true ;;
+  *) APPLY_KEYD_CONFIG=false ;;
+  esac
+fi
 
-mkdir -p /etc/keyd
+if $APPLY_KEYD_CONFIG; then
+  section "⌨️  Configurando keyd..."
 
-cat >/etc/keyd/default.conf <<'EOF'
+  mkdir -p /etc/keyd
+
+  cat >/etc/keyd/default.conf <<'EOF'
 # keyd config
 # /etc/keyd/default.conf
 [ids]
@@ -1429,13 +1585,45 @@ mouse2 = M-f
 mouse1 = print
 EOF
 
-log_or_show systemctl enable --now keyd
-gum style --foreground 82 "✅ keyd configurado y habilitado."
+  log_or_show systemctl enable --now keyd
+  gum style --foreground 82 "✅ keyd configurado y habilitado."
+else
+  gum style --foreground 244 "⏭️  keyd: config de mouse omitida. Para armar la tuya, corré 'sudo keyd list-ids' y editá /etc/keyd/default.conf a mano."
+fi
+
+# -----------------------------
+# 9.2. Ignorar touchpad del control DualSense/PS4 como dispositivo
+#       de input (evita que libinput lo trate como touchpad real)
+# -----------------------------
+APPLY_DUALSENSE_RULE=false
+if $OWNER_MODE; then
+  APPLY_DUALSENSE_RULE=true
+else
+  DUALSENSE_CHOICE=$(ask_choice "🎮 ¿Tenés un control DualSense/PS4 y querés que se ignore su touchpad como dispositivo de input?" \
+    "❌ No" \
+    "✅ Sí")
+  case "$DUALSENSE_CHOICE" in
+  *"Sí"*) APPLY_DUALSENSE_RULE=true ;;
+  *) APPLY_DUALSENSE_RULE=false ;;
+  esac
+fi
+
+if $APPLY_DUALSENSE_RULE; then
+  section "🎮 Configurando regla udev para ignorar touchpad de DualSense/PS4..."
+  mkdir -p /etc/udev/rules.d
+  cat >/etc/udev/rules.d/99-ignore-dualsense-touchpad.rules <<'EOF'
+ATTRS{name}=="DualSense Wireless Controller Touchpad", ENV{LIBINPUT_IGNORE_DEVICE}="1"
+ATTRS{name}=="Wireless Controller Touchpad", ENV{LIBINPUT_IGNORE_DEVICE}="1"
+EOF
+  udevadm control --reload-rules 2>/dev/null || true
+  gum style --foreground 82 "✅ Regla udev creada — libinput va a ignorar el touchpad del control (aplica igual en Hyprland y Niri, es a nivel de kernel/libinput)."
+fi
 
 # -----------------------------
 # 10. Restaurar configuraciones desde respaldo
 # -----------------------------
 section "📂 Restaurando configuraciones desde $SCRIPT_DIR/respaldo..."
+
 
 # Generar las carpetas de usuario estándar (Pictures, Videos, Documents,
 # etc.) ANTES de restaurar — así "Pictures" existe en el idioma/nombre
@@ -1521,8 +1709,8 @@ EOF
       for timer_file in "$USER_SYSTEMD_DIR"/*.timer; do
         timer_name=$(basename "$timer_file")
         sudo -u "$REAL_USER" env XDG_RUNTIME_DIR="/run/user/$(id -u "$REAL_USER")" \
-          systemctl --user enable --now "$timer_name" &&
-          gum style --foreground 82 "  ✅ $timer_name activado." ||
+          systemctl --user enable --now "$timer_name" && \
+          gum style --foreground 82 "  ✅ $timer_name activado." || \
           gum style --foreground 244 "  ⚠️  No se pudo activar $timer_name."
       done
       shopt -u nullglob
@@ -1570,7 +1758,10 @@ EOF
     # Cualquier otra carpeta de app (no hypr/niri/kde/noctalia, que ya
     # se manejaron arriba): respeta la elección limpio/restaurar hecha
     # en la sección 0.8 para esa app puntual, si se preguntó.
-    if [ "$folder" != "hypr" ] && [ "$folder" != "niri" ] && [ "$folder" != "kde" ] && [ "$folder" != "noctalia" ]; then
+    # Excepción: carpetas de theming puro (qt6ct, gtk-3.0, gtk-4.0) se
+    # restauran SIEMPRE, en los dos modos — no tienen nada personal.
+    if [ "$folder" != "hypr" ] && [ "$folder" != "niri" ] && [ "$folder" != "kde" ] && [ "$folder" != "noctalia" ] \
+      && [ "$folder" != "qt6ct" ] && [ "$folder" != "gtk-3.0" ] && [ "$folder" != "gtk-4.0" ]; then
       if [[ "${APP_RESTORE_CHOICE[$folder]:-}" == "clean" ]]; then
         gum style --foreground 244 "  ⏭️  $folder → omitido (se pidió instalación limpia para esa app)"
         continue
@@ -1785,30 +1976,11 @@ if [ -f "$NIRI_FINAL_CONF" ] && grep -q "AUTO_TERMINAL_EMULATOR" "$NIRI_FINAL_CO
 fi
 
 # -----------------------------
-# 11. Configurar Plymouth en mkinitcpio
-# -----------------------------
-section "🎨 Configurando Plymouth en mkinitcpio..."
-
-MKINITCPIO="/etc/mkinitcpio.conf"
-
-if grep -q "plymouth" "$MKINITCPIO"; then
-  gum style --foreground 244 "⚠️ Plymouth ya está en $MKINITCPIO"
-else
-  sed -i 's/\(HOOKS=.*udev\)/\1 plymouth/' "$MKINITCPIO"
-  gum style --foreground 82 "✅ Plymouth agregado a los HOOKS de mkinitcpio"
-fi
-
-# -----------------------------
 # 12. Notas post-instalación
 # -----------------------------
 gum style --border rounded --border-foreground 25 --padding "1 3" --margin "1 0" "$(
   cat <<'EOF'
 🎉 Instalación completada. Notas importantes:
-
-🔵 Plymouth (splash de arranque):
-   Configurado automáticamente: hook en mkinitcpio, 'splash' en
-   /etc/kernel/cmdline (embebido en el UKI) y timeout de systemd-boot
-   en 1 segundo. No hace falta tocar nada más.
 
 🔵 os-prober (arranque dual con GRUB, si aplica):
    /etc/default/grub → GRUB_DISABLE_OS_PROBER=false
