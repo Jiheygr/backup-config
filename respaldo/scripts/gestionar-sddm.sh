@@ -33,16 +33,22 @@ THEME_DIR="/usr/share/sddm/themes/silent"
 BACKGROUNDS_DIR="$THEME_DIR/backgrounds"
 VALID_BG_EXT="jpg|jpeg|png|avi|mp4|mov|mkv|m4v|webm"
 
-# Carpetas de origen para el selector fzf
-WALLPAPER_DIR="/home/jihey/Pictures/Wallpapers/dynamic-wallpaper"
-AVATAR_DIR="/home/jihey/Pictures/avatar"
-
-BACK_LABEL="⬅️  Volver al menú principal"
-
 REAL_USER=${SUDO_USER:-$USER}
 USER_HOME=$(eval echo "~$REAL_USER")
 BACKUP_DIR="$USER_HOME/respaldo/sddm"
 THUMB_CACHE="$USER_HOME/.cache/sddm-fzf-thumbs"
+
+# Carpeta de Imágenes real del usuario (respeta xdg-user-dirs, con
+# fallback a ~/Pictures) — misma convención que usa install.sh, así
+# funciona con cualquier usuario, no solo en esta máquina.
+PICTURES_DIR=$(sudo -u "$REAL_USER" xdg-user-dir PICTURES 2>/dev/null)
+[[ -z "$PICTURES_DIR" ]] && PICTURES_DIR="$USER_HOME/Pictures"
+
+# Carpetas de origen para el selector fzf
+WALLPAPER_DIR="$PICTURES_DIR/Wallpapers/dynamic-wallpaper"
+AVATAR_DIR="$PICTURES_DIR/avatar"
+
+BACK_LABEL="⬅️  Volver al menú principal"
 
 require_theme_installed() {
   if [[ ! -d "$THEME_DIR" ]]; then
