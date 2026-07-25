@@ -2323,7 +2323,7 @@ binds {
     Mod+Shift+Slash { show-hotkey-overlay; }
 
     // Suggested binds for running programs: terminal, app launcher, screen locker.
-    Mod+return hotkey-overlay-title="Open a Terminal: kitty" { spawn "kitty"; }
+    Mod+return hotkey-overlay-title="Open a Terminal: AUTO_TERMINAL_EMULATOR" { spawn "AUTO_TERMINAL_EMULATOR"; }
     Mod+space hotkey-overlay-title="Run an Application: nwg-drawer" { spawn "nwg-drawer"; }
     Super+Alt+L hotkey-overlay-title="Lock the Screen: swaylock" { spawn "swaylock"; }
 
@@ -2593,15 +2593,15 @@ binds {
     Mod+N { spawn "nirimod"; }
     Mod+C { spawn "nvim-qt"; }
     Mod+S { spawn "noctalia" "msg" "panel-toggle" "control-center"; }
-    Mod+Shift+S { spawn-sh "kitty -e gestionar-sddm.sh"; }
+    Mod+Shift+S { spawn-sh "AUTO_TERMINAL_EMULATOR -e gestionar-sddm.sh"; }
     Mod+G { spawn "steam"; }
-    Mod+Ctrl+E { spawn-sh "kitty --class editconfig -e editconfig"; }
+    Mod+Ctrl+E { spawn-sh "AUTO_TERMINAL_EMULATOR --class editconfig -e editconfig"; }
     Mod+Ctrl+C { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=fmpnliohjhemenmnlpbfagaolkdacoja"; }
     Mod+Shift+G { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=mjoklplbddabcmpepnokjaffbmgbkkgg"; }
     Mod+Shift+W { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=hnpfjngllnobngcgfapefoaidbinmjnm"; }
     Mod+Y { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=agimnkijcaahngcdmfeangaknmldooml"; }
     Mod+Shift+Y { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=cinhimbnkkaeohfgghhklpknlkffjgod"; }
-    Mod+U { spawn-sh "kitty -e update-system"; }
+    Mod+U { spawn-sh "AUTO_TERMINAL_EMULATOR -e update-system"; }
 }
 
 environment {
