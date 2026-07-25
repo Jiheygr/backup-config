@@ -69,6 +69,8 @@ fi
 REAL_USER=${SUDO_USER:-$USER}
 USER_HOME=$(eval echo "~$REAL_USER")
 ZSHRC="$USER_HOME/.zshrc"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKUP_DIR="$SCRIPT_DIR/respaldo"
 
 # Si vinieron con ruta relativa, resolverlas contra el directorio actual
 if [[ -n "$HYPRLAND_LUA_SRC" ]]; then
@@ -138,8 +140,8 @@ IS_TTY_CONSOLE=false
 strip_emoji() {
   sed -e 's/🔊//g; s/🤫//g; s/🌊//g; s/🌀//g; s/🔀//g; s/🟪//g; s/📦//g; s/✅//g; s/❌//g;
           s/🧹//g; s/📂//g; s/🎁//g; s/🔍//g; s/🖥️//g; s/📸//g; s/🎮//g;
-          s/💬//g; s/🐚//g; s/🔐//g; s/🗂️//g; s/🎨//g; s/🐧//g; s/🔎//g' <<<"$1" \
-    | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
+          s/💬//g; s/🐚//g; s/🔐//g; s/🗂️//g; s/🎨//g; s/🐧//g; s/🔎//g' <<<"$1" |
+    sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
 }
 
 # Selección de UNA opción. Usa gum en terminal gráfica, o un menú
@@ -273,13 +275,25 @@ detect_monitors() {
 
     local drm_path conn status edid_path info res refresh
     drm_path=$(dirname "$status_path")
-    conn=$(basename "$drm_path" | sed -E 's/^card[0-9]+-//')  # DP-1, HDMI-A-1, eDP-1...
+    conn=$(basename "$drm_path" | sed -E 's/^card[0-9]+-//') # DP-1, HDMI-A-1, eDP-1...
     status=$(cat "$status_path" 2>/dev/null)
     [[ "$status" == "connected" ]] || continue
 
     edid_path="$drm_path/edid"
     res=""
     refresh=""
+
+    # Reintenta un par de veces con una pequeña espera: en GPUs NVIDIA
+    # (sobre todo con el panel cableado a la dGPU) el EDID a veces no
+    # queda cacheado en sysfs hasta un instante después del boot.
+    local attempt
+    for attempt in 1 2 3; do
+      if [[ -s "$edid_path" ]]; then
+        break
+      fi
+      sleep 1
+    done
+
     if [[ -s "$edid_path" ]]; then
       info=$(edid-decode "$edid_path" 2>/dev/null)
       res=$(grep -A2 "Detailed Timing Descriptors" <<<"$info" | grep -oE '[0-9]{3,4}x[0-9]{3,4}' | head -1)
@@ -291,7 +305,7 @@ detect_monitors() {
       gum style --foreground 82 "  ✅ $conn detectado: ${res} @ ${refresh:-60.00}Hz"
       DETECTED_MONITORS+=("${conn}|${res}|${refresh:-60.00}|1")
     else
-      gum style --foreground 244 "  ⚠️ $conn conectado pero no se pudo leer el EDID (puede necesitar el driver de GPU instalado) — vas a poder configurarlo manualmente"
+      gum style --foreground 244 "  ⚠️ $conn conectado pero no se pudo leer el EDID (normal en GPUs NVIDIA antes de que corra un compositor) — vas a poder configurarlo manualmente"
       DETECTED_MONITORS+=("${conn}|||1")
     fi
   done
@@ -563,8 +577,8 @@ fi
 # -----------------------------
 # 0.5.1. Selección de restauración de respaldo
 # -----------------------------
-RESTORE_HYPR_CONFIG=true
-RESTORE_NIRI_CONFIG=true
+RESTORE_HYPR_CONFIG=false
+RESTORE_NIRI_CONFIG=false
 RESTORE_KDE_CONFIG=false
 
 if $INSTALL_KDE; then
@@ -576,24 +590,35 @@ if $INSTALL_KDE; then
   *) RESTORE_KDE_CONFIG=false ;;
   esac
 fi
-# Hyprland y Niri restauran respaldo/hypr y respaldo/niri SIEMPRE, sin
-# preguntar. Si además pasaste --hyprland-lua/--niri-kdl, esos flags no
-# se aplican (ver sección 10.1 más abajo) porque el respaldo ya trae la
-# config completa y no hay que pisarla.
+
+# Hyprland/Niri: igual que cualquier otra app, solo se pregunta si
+# existe respaldo/hypr o respaldo/niri. Si no existe, es limpio directo
+# (y ahí --hyprland-lua/--niri-kdl sí se aplican, ver sección 10.1).
+if $INSTALL_HYPRLAND && [ -d "$BACKUP_DIR/hypr" ]; then
+  HYPR_RESTORE_CHOICE=$(ask_choice "Hyprland: ¿limpio o restaurar desde respaldo/hypr?" \
+    "🧹 Limpio" \
+    "📂 Restaurar respaldo/hypr")
+  case "$HYPR_RESTORE_CHOICE" in
+  *Restaurar*) RESTORE_HYPR_CONFIG=true ;;
+  *) RESTORE_HYPR_CONFIG=false ;;
+  esac
+fi
+
+if $INSTALL_NIRI && [ -d "$BACKUP_DIR/niri" ]; then
+  NIRI_RESTORE_CHOICE=$(ask_choice "Niri: ¿limpio o restaurar desde respaldo/niri?" \
+    "🧹 Limpio" \
+    "📂 Restaurar respaldo/niri")
+  case "$NIRI_RESTORE_CHOICE" in
+  *Restaurar*) RESTORE_NIRI_CONFIG=true ;;
+  *) RESTORE_NIRI_CONFIG=false ;;
+  esac
+fi
 # -----------------------------
 # 0.8. Categorías de apps — una por una, con detección de instalado
 # -----------------------------
-# Todo lo que NO es estrictamente necesario para que el window manager
-# elegido funcione (eso ya se instala aparte, fijo) se recorre categoría
-# por categoría, cada una en su propia pantalla — sin un paso previo de
-# "elegí qué categorías" que después se repite. Antes de cada categoría
-# se avisa qué de eso ya está instalado.
-INSTALL_ALL=false
-ALL_OR_REVIEW=$(ask_choice "¿Cómo querés elegir las apps extra?" \
-  "🎁 Instalar todo (sin revisar cada categoría)" \
-  "🔍 Revisar categoría por categoría")
-grep -q "Instalar todo" <<<"$ALL_OR_REVIEW" && INSTALL_ALL=true
-
+# Siempre se recorre categoría por categoría (sin atajo de "instalar
+# todo"), cada una en su propia pantalla. Antes de cada categoría se
+# avisa qué de eso ya está instalado.
 INSTALL_CAT_PAMAC=false
 INSTALL_CAT_HOWDY=false
 
@@ -624,6 +649,32 @@ pick_apps_in_category() {
     "${all_pkgs[@]}"))
 }
 
+# -----------------------------
+# Instalación limpia vs. restaurar respaldo, POR APP
+# -----------------------------
+# Para cada paquete elegido (en cualquier categoría), si existe
+# respaldo/<paquete> se pregunta si querés instalación limpia (config
+# de ejemplo del paquete) o restaurar tu respaldo para esa app puntual.
+# APP_RESTORE_CHOICE: mapa "nombre_carpeta" -> "clean" | "restore".
+declare -A APP_RESTORE_CHOICE
+
+ask_app_restore_choices() {
+  local pkg
+  for pkg in "$@"; do
+    [[ -d "$BACKUP_DIR/$pkg" ]] || continue
+    [[ -n "${APP_RESTORE_CHOICE[$pkg]:-}" ]] && continue # ya preguntado
+
+    local choice
+    choice=$(ask_choice "📂 ${pkg}: encontré respaldo/${pkg} — ¿qué querés usar?" \
+      "🧹 Limpio (config de ejemplo del paquete)" \
+      "📂 Restaurar respaldo/${pkg}")
+    case "$choice" in
+    *Restaurar*) APP_RESTORE_CHOICE[$pkg]="restore" ;;
+    *) APP_RESTORE_CHOICE[$pkg]="clean" ;;
+    esac
+  done
+}
+
 SEL_DESKTOP=()
 SEL_CAPTURE=()
 SEL_GAMING=()
@@ -637,48 +688,52 @@ DESKTOP_ALL=(libappindicator-gtk3 nwg-drawer nwg-look papirus-icon-theme swaybg 
 CAPTURE_ALL=(grim slurp gpu-screen-recorder cava mpvpaper)
 GAMING_ALL=(wine-staging winetricks protontricks protonplus mangojuice steam gamemode gamescope vulkan-tools)
 APPS_ALL=(telegram-desktop discord brave-origin-bin proton-vpn-gtk-app localsend
-  mission-center fastfetch gnome-firmware gearlever chafa xarchiver)
-TERMINAL_ALL=(neovim neovim-qt fzf jq eza yazi)
+  mission-center fastfetch gnome-firmware gearlever chafa xarchiver octopi
+  visual-studio-code-bin sublime-text-4 geany kate)
+TERMINAL_ALL=(neovim neovim-qt fzf jq eza yazi vim micro helix emacs-nox)
 SNAPSHOTS_ALL=(btrfs-assistant btrfs-progs snapper snap-pac)
 
-if $INSTALL_ALL; then
-  INSTALL_CAT_PAMAC=true
-  INSTALL_CAT_HOWDY=true
-  SEL_DESKTOP=("${DESKTOP_ALL[@]}")
-  SEL_CAPTURE=("${CAPTURE_ALL[@]}")
-  SEL_GAMING=("${GAMING_ALL[@]}")
-  SEL_APPS=("${APPS_ALL[@]}")
-  SEL_TERMINAL=("${TERMINAL_ALL[@]}")
-  SEL_SNAPSHOTS=("${SNAPSHOTS_ALL[@]}")
-else
-  # Gestor de paquetes gráfico (un solo paquete → sí/no, no picker)
-  show_already_installed pamac-aur
-  PAMAC_CHOICE=$(ask_choice "📦 ¿Instalar el gestor de paquetes gráfico (pamac)?" "✅ Sí" "❌ No")
-  grep -q "Sí" <<<"$PAMAC_CHOICE" && INSTALL_CAT_PAMAC=true
+# Emulador de terminal — pregunta de opción única, no checklist (solo
+# se instala UNO). kitty queda como opción, ya no viene fijo/obligado.
+TERMINAL_EMU_CHOICE=$(ask_choice "🖥️  ¿Qué emulador de terminal querés instalar?" \
+  "kitty" "alacritty" "foot" "wezterm")
+SEL_TERMINAL_EMU="$TERMINAL_EMU_CHOICE"
+gum style --foreground 82 "  ✅ Emulador de terminal: $SEL_TERMINAL_EMU"
 
-  pick_apps_in_category "🖥️  Utilidades de escritorio" "${DESKTOP_ALL[@]}"
-  SEL_DESKTOP=("${SEL_RESULT[@]}")
+# Gestor de paquetes gráfico (un solo paquete → sí/no, no picker)
+show_already_installed pamac-aur
+PAMAC_CHOICE=$(ask_choice "📦 ¿Instalar el gestor de paquetes gráfico (pamac)?" "✅ Sí" "❌ No")
+grep -q "Sí" <<<"$PAMAC_CHOICE" && INSTALL_CAT_PAMAC=true
 
-  pick_apps_in_category "📸 Capturas y grabación" "${CAPTURE_ALL[@]}"
-  SEL_CAPTURE=("${SEL_RESULT[@]}")
+pick_apps_in_category "🖥️  Utilidades de escritorio" "${DESKTOP_ALL[@]}"
+SEL_DESKTOP=("${SEL_RESULT[@]}")
 
-  pick_apps_in_category "🎮 Gaming" "${GAMING_ALL[@]}"
-  SEL_GAMING=("${SEL_RESULT[@]}")
+pick_apps_in_category "📸 Capturas y grabación" "${CAPTURE_ALL[@]}"
+SEL_CAPTURE=("${SEL_RESULT[@]}")
 
-  pick_apps_in_category "💬 Apps y comunicación" "${APPS_ALL[@]}"
-  SEL_APPS=("${SEL_RESULT[@]}")
+pick_apps_in_category "🎮 Gaming" "${GAMING_ALL[@]}"
+SEL_GAMING=("${SEL_RESULT[@]}")
 
-  pick_apps_in_category "🐚 Terminal avanzada" "${TERMINAL_ALL[@]}"
-  SEL_TERMINAL=("${SEL_RESULT[@]}")
+pick_apps_in_category "💬 Apps y comunicación" "${APPS_ALL[@]}"
+SEL_APPS=("${SEL_RESULT[@]}")
 
-  # Autenticación facial (un solo paquete → sí/no, no picker)
-  show_already_installed howdy-git
-  HOWDY_CHOICE=$(ask_choice "🔐 ¿Instalar autenticación facial (howdy)?" "✅ Sí" "❌ No")
-  grep -q "Sí" <<<"$HOWDY_CHOICE" && INSTALL_CAT_HOWDY=true
+pick_apps_in_category "🐚 Terminal avanzada" "${TERMINAL_ALL[@]}"
+SEL_TERMINAL=("${SEL_RESULT[@]}")
 
-  pick_apps_in_category "🗂️  Snapshots BTRFS" "${SNAPSHOTS_ALL[@]}"
-  SEL_SNAPSHOTS=("${SEL_RESULT[@]}")
-fi
+# Autenticación facial (un solo paquete → sí/no, no picker)
+show_already_installed howdy-git
+HOWDY_CHOICE=$(ask_choice "🔐 ¿Instalar autenticación facial (howdy)?" "✅ Sí" "❌ No")
+grep -q "Sí" <<<"$HOWDY_CHOICE" && INSTALL_CAT_HOWDY=true
+
+pick_apps_in_category "🗂️  Snapshots BTRFS" "${SNAPSHOTS_ALL[@]}"
+SEL_SNAPSHOTS=("${SEL_RESULT[@]}")
+
+# Ahora que ya sabemos TODO lo que se va a instalar, preguntamos
+# limpio/restaurar por cada app elegida que tenga respaldo propio.
+section "📂 Instalación limpia vs. respaldo, por app"
+ask_app_restore_choices "$SEL_TERMINAL_EMU" \
+  "${SEL_DESKTOP[@]}" "${SEL_CAPTURE[@]}" "${SEL_GAMING[@]}" \
+  "${SEL_APPS[@]}" "${SEL_TERMINAL[@]}" "${SEL_SNAPSHOTS[@]}"
 
 # Helpers de ejecución
 # -----------------------------
@@ -744,7 +799,7 @@ run_pacman_progress() {
     # códigos de color ANSI antes de "(n/total)" — hay que sacarlos
     # antes de parsear, si no la línea no matchea y las variables
     # quedan vacías (causaba "printf: : invalid number").
-    last=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | \
+    last=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' |
       grep -E '\([0-9]+/[0-9]+\) (installing|upgrading|reinstalling)' | tail -1)
     if [[ -n "$last" ]]; then
       cur=$(grep -oE '^\([0-9]+' <<<"$last" | tr -d '(')
@@ -757,7 +812,7 @@ run_pacman_progress() {
       [[ -z "$cur" ]] && cur=1
       [[ -z "$tot" || "$tot" -eq 0 ]] && tot=$total_pkgs
       [[ -z "$pkg" ]] && pkg="..."
-      pct=$(( ((cur - 1) * 100 + subpct) / tot ))
+      pct=$((((cur - 1) * 100 + subpct) / tot))
       [[ $pct -gt 100 ]] && pct=100
       [[ $pct -lt 0 ]] && pct=0
       filled=$((pct * bar_len / 100))
@@ -769,7 +824,7 @@ run_pacman_progress() {
       # Todavía no hay nada que contar — pacman sigue resolviendo
       # dependencias, sincronizando bases de datos o descargando.
       # Spinner para que se vea movimiento real desde el arranque.
-      spin_phase_msg=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tail -1 | \
+      spin_phase_msg=$(tr '\r' '\n' <"$tmp_out" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tail -1 |
         grep -oE 'downloading\.\.\.|Synchronizing package databases\.\.\.|resolving dependencies\.\.\.|looking for conflicting packages\.\.\.|Retrieving packages\.\.\.' | tail -1)
       [[ -z "$spin_phase_msg" ]] && spin_phase_msg="preparando..."
       spin_i=$(((spin_i + 1) % ${#spin_chars}))
@@ -848,28 +903,24 @@ if $INSTALL_NOCTALIA; then
   fi
 fi
 
-SUMMARY_LINES+=("🔎 Hardware: CPU $CPU_VENDOR_ID (${CPU_UCODE_PKG:-sin microcode}) · GPU $GPU_VENDOR")
+SUMMARY_LINES+=("🖥️  Terminal: $SEL_TERMINAL_EMU")
 
-if $INSTALL_ALL; then
-  SUMMARY_LINES+=("🎁 Apps: instalar todo (todas las categorías completas)")
+CAT_SUMMARY=()
+$INSTALL_CAT_PAMAC && CAT_SUMMARY+=("pamac")
+[[ ${#SEL_DESKTOP[@]} -gt 0 ]] && CAT_SUMMARY+=("escritorio (${#SEL_DESKTOP[@]})")
+[[ ${#SEL_CAPTURE[@]} -gt 0 ]] && CAT_SUMMARY+=("capturas (${#SEL_CAPTURE[@]})")
+[[ ${#SEL_GAMING[@]} -gt 0 ]] && CAT_SUMMARY+=("gaming (${#SEL_GAMING[@]})")
+[[ ${#SEL_APPS[@]} -gt 0 ]] && CAT_SUMMARY+=("apps/comunicación (${#SEL_APPS[@]})")
+[[ ${#SEL_TERMINAL[@]} -gt 0 ]] && CAT_SUMMARY+=("terminal (${#SEL_TERMINAL[@]})")
+$INSTALL_CAT_HOWDY && CAT_SUMMARY+=("howdy")
+[[ ${#SEL_SNAPSHOTS[@]} -gt 0 ]] && CAT_SUMMARY+=("snapshots (${#SEL_SNAPSHOTS[@]})")
+if [[ ${#CAT_SUMMARY[@]} -eq 0 ]]; then
+  SUMMARY_LINES+=("📦 Apps: ninguna categoría extra elegida")
 else
-  CAT_SUMMARY=()
-  $INSTALL_CAT_PAMAC && CAT_SUMMARY+=("pamac")
-  [[ ${#SEL_DESKTOP[@]} -gt 0 ]] && CAT_SUMMARY+=("escritorio (${#SEL_DESKTOP[@]})")
-  [[ ${#SEL_CAPTURE[@]} -gt 0 ]] && CAT_SUMMARY+=("capturas (${#SEL_CAPTURE[@]})")
-  [[ ${#SEL_GAMING[@]} -gt 0 ]] && CAT_SUMMARY+=("gaming (${#SEL_GAMING[@]})")
-  [[ ${#SEL_APPS[@]} -gt 0 ]] && CAT_SUMMARY+=("apps/comunicación (${#SEL_APPS[@]})")
-  [[ ${#SEL_TERMINAL[@]} -gt 0 ]] && CAT_SUMMARY+=("terminal (${#SEL_TERMINAL[@]})")
-  $INSTALL_CAT_HOWDY && CAT_SUMMARY+=("howdy")
-  [[ ${#SEL_SNAPSHOTS[@]} -gt 0 ]] && CAT_SUMMARY+=("snapshots (${#SEL_SNAPSHOTS[@]})")
-  if [[ ${#CAT_SUMMARY[@]} -eq 0 ]]; then
-    SUMMARY_LINES+=("📦 Apps: ninguna categoría extra elegida")
-  else
-    SUMMARY_LINES+=("📦 Apps: $(
-      IFS=,
-      echo "${CAT_SUMMARY[*]}"
-    )")
-  fi
+  SUMMARY_LINES+=("📦 Apps: $(
+    IFS=,
+    echo "${CAT_SUMMARY[*]}"
+  )")
 fi
 
 gum style --border rounded --border-foreground 25 --padding "1 3" --margin "1 0" \
@@ -928,7 +979,6 @@ PACMAN_PKGS=(
   pipewire-jack
   wireplumber
   # Básicos de escritorio (necesarios para cualquier sesión gráfica)
-  kitty
   keyd
   brightnessctl
   pavucontrol
@@ -947,6 +997,7 @@ PACMAN_PKGS=(
   git
   wget
   xdg-user-dirs
+  jq
 )
 
 if $INSTALL_HYPRLAND; then
@@ -992,6 +1043,8 @@ fi
 
 $INSTALL_CAT_PAMAC && PACMAN_PKGS+=(pamac)
 
+PACMAN_PKGS+=("$SEL_TERMINAL_EMU")
+
 [[ ${#SEL_DESKTOP[@]} -gt 0 ]] && PACMAN_PKGS+=("${SEL_DESKTOP[@]}")
 [[ ${#SEL_CAPTURE[@]} -gt 0 ]] && PACMAN_PKGS+=("${SEL_CAPTURE[@]}")
 [[ ${#SEL_GAMING[@]} -gt 0 ]] && PACMAN_PKGS+=("${SEL_GAMING[@]}")
@@ -1001,6 +1054,31 @@ $INSTALL_CAT_PAMAC && PACMAN_PKGS+=(pamac)
 $INSTALL_CAT_HOWDY && PACMAN_PKGS+=(howdy-git)
 
 [[ ${#SEL_SNAPSHOTS[@]} -gt 0 ]] && PACMAN_PKGS+=("${SEL_SNAPSHOTS[@]}")
+
+# Filtra paquetes que no existen en ningún repo sincronizado (oficial o
+# chaotic-aur) ANTES de instalar. Un solo nombre inválido en el lote
+# hace que pacman aborte TODA la transacción, no solo ese paquete — así
+# que en vez de dejar que tumbe todo, lo avisamos y seguimos con el
+# resto. (Paquetes solo-AUR sin build en chaotic-aur, como suele pasar
+# con algunos "-bin" por temas de licencia, caen acá.)
+UNAVAILABLE_PKGS=()
+AVAILABLE_PKGS=()
+for pkg in "${PACMAN_PKGS[@]}"; do
+  if pacman -Si "$pkg" &>/dev/null; then
+    AVAILABLE_PKGS+=("$pkg")
+  else
+    UNAVAILABLE_PKGS+=("$pkg")
+  fi
+done
+PACMAN_PKGS=("${AVAILABLE_PKGS[@]}")
+
+if [[ ${#UNAVAILABLE_PKGS[@]} -gt 0 ]]; then
+  gum style --foreground 196 "⚠️ No se encontraron en ningún repo sincronizado (se omiten, no bloquean el resto): $(
+    IFS=', '
+    echo "${UNAVAILABLE_PKGS[*]}"
+  )"
+  gum style --foreground 244 "   Si alguno lo necesitás igual, probá instalarlo aparte con un AUR helper (yay/paru) después."
+fi
 
 run_pacman_progress "🖥️ Instalando apps, configuraciones y utilidades (${#PACMAN_PKGS[@]} paquetes)..." \
   "${PACMAN_PKGS[@]}"
@@ -1280,7 +1358,6 @@ else
   gum style --foreground 244 "⚠️ Oh My Zsh ya está instalado"
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ZSHRC_BACKUP="$SCRIPT_DIR/respaldo/.zshrc"
 
 if [ -f "$ZSHRC_BACKUP" ]; then
@@ -1359,7 +1436,6 @@ gum style --foreground 82 "✅ keyd configurado y habilitado."
 # 10. Restaurar configuraciones desde respaldo
 # -----------------------------
 section "📂 Restaurando configuraciones desde $SCRIPT_DIR/respaldo..."
-
 
 # Generar las carpetas de usuario estándar (Pictures, Videos, Documents,
 # etc.) ANTES de restaurar — así "Pictures" existe en el idioma/nombre
@@ -1445,8 +1521,8 @@ EOF
       for timer_file in "$USER_SYSTEMD_DIR"/*.timer; do
         timer_name=$(basename "$timer_file")
         sudo -u "$REAL_USER" env XDG_RUNTIME_DIR="/run/user/$(id -u "$REAL_USER")" \
-          systemctl --user enable --now "$timer_name" && \
-          gum style --foreground 82 "  ✅ $timer_name activado." || \
+          systemctl --user enable --now "$timer_name" &&
+          gum style --foreground 82 "  ✅ $timer_name activado." ||
           gum style --foreground 244 "  ⚠️  No se pudo activar $timer_name."
       done
       shopt -u nullglob
@@ -1491,34 +1567,19 @@ EOF
       continue
     fi
 
+    # Cualquier otra carpeta de app (no hypr/niri/kde/noctalia, que ya
+    # se manejaron arriba): respeta la elección limpio/restaurar hecha
+    # en la sección 0.8 para esa app puntual, si se preguntó.
+    if [ "$folder" != "hypr" ] && [ "$folder" != "niri" ] && [ "$folder" != "kde" ] && [ "$folder" != "noctalia" ]; then
+      if [[ "${APP_RESTORE_CHOICE[$folder]:-}" == "clean" ]]; then
+        gum style --foreground 244 "  ⏭️  $folder → omitido (se pidió instalación limpia para esa app)"
+        continue
+      fi
+    fi
+
     DEST="$CONFIG_DIR/$folder"
     rm -rf "$DEST"
     cp -r "$SRC" "$DEST"
-
-    # Si el archivo restaurado tiene el marcador AUTO_MONITOR_BLOCK
-    # (hyprland.lua o config.kdl), lo reemplazamos acá con el monitor
-    # que se detectó/eligió al principio del script. Esto corre siempre
-    # (no solo en instalación limpia) porque el respaldo se restaura
-    # siempre por defecto.
-    if [ "$folder" = "hypr" ] && [ -f "$DEST/hyprland.lua" ] && grep -q "AUTO_MONITOR_BLOCK" "$DEST/hyprland.lua"; then
-      HYPR_MONITOR_BLOCK=$(generate_hypr_monitor_block)
-      awk -v block="$HYPR_MONITOR_BLOCK" '
-        /AUTO_MONITOR_BLOCK/ { print block; next }
-        { print }
-      ' "$DEST/hyprland.lua" >"$DEST/hyprland.lua.tmp"
-      mv "$DEST/hyprland.lua.tmp" "$DEST/hyprland.lua"
-      gum style --foreground 82 "  ✅ Monitor(es) aplicado(s) a $DEST/hyprland.lua"
-    fi
-    if [ "$folder" = "niri" ] && [ -f "$DEST/config.kdl" ] && grep -q "AUTO_MONITOR_BLOCK" "$DEST/config.kdl"; then
-      NIRI_MONITOR_BLOCK=$(generate_niri_output_block)
-      awk -v block="$NIRI_MONITOR_BLOCK" '
-        /AUTO_MONITOR_BLOCK/ { print block; next }
-        { print }
-      ' "$DEST/config.kdl" >"$DEST/config.kdl.tmp"
-      mv "$DEST/config.kdl.tmp" "$DEST/config.kdl"
-      gum style --foreground 82 "  ✅ Monitor(es) aplicado(s) a $DEST/config.kdl"
-    fi
-
     chown -R "$REAL_USER:$REAL_USER" "$DEST"
     gum style --foreground 82 "  ✅ $folder → $CONFIG_DIR/"
   done
@@ -1550,64 +1611,177 @@ EOF
 fi
 
 # -----------------------------
+# 10.0.2. Script "fix-monitor-config" — ajuste fino post-login
+# -----------------------------
+# Ni edid-decode ni ningún parseo pre-boot del EDID va a coincidir
+# nunca con precisión exacta al valor que el compositor calcula
+# internamente (cada uno redondea distinto el mismo timing: Niri daba
+# 360.041, Hyprland 360.04 para el mismo panel). La única fuente
+# confiable es preguntarle al compositor una vez que ya está corriendo.
+# Este script hace eso y reescribe la config con el valor exacto.
+if $INSTALL_HYPRLAND || $INSTALL_NIRI; then
+  cat >/usr/local/bin/fix-monitor-config <<'FIXEOF'
+#!/usr/bin/env bash
+# Corré esto UNA VEZ después de tu primer login gráfico (Hyprland o
+# Niri ya tienen que estar corriendo). Pregunta al compositor los
+# valores exactos de refresh que aceptó para tus monitores, y
+# reescribe hyprland.lua / config.kdl con esos valores precisos.
+set -e
+
+if command -v hyprctl &>/dev/null && [ -f "$HOME/.config/hypr/hyprland.lua" ]; then
+  HYPR_CONF="$HOME/.config/hypr/hyprland.lua"
+  echo "🔎 Consultando hyprctl monitors..."
+  hyprctl monitors -j | jq -c '.[]' | while read -r mon; do
+    name=$(jq -r '.name' <<<"$mon")
+    width=$(jq -r '.width' <<<"$mon")
+    height=$(jq -r '.height' <<<"$mon")
+    hz=$(jq -r '.refreshRate' <<<"$mon")
+    newmode="${width}x${height}@${hz}"
+    echo "  → ${name}: ${newmode}"
+    awk -v conn="$name" -v newmode="$newmode" '
+      /hl\.monitor\(\{/ { inblock=1; cur="" }
+      inblock && match($0, /output = "([^"]*)"/, arr) { cur = arr[1] }
+      inblock && cur == conn && /mode = "/ {
+        sub(/mode = "[^"]*"/, "mode = \"" newmode "\"")
+      }
+      /\}\)/ { inblock=0 }
+      { print }
+    ' "$HYPR_CONF" >"${HYPR_CONF}.tmp" && mv "${HYPR_CONF}.tmp" "$HYPR_CONF"
+  done
+  echo "✅ hyprland.lua actualizado. Recargá con: hyprctl reload"
+fi
+
+if command -v niri &>/dev/null && [ -f "$HOME/.config/niri/config.kdl" ]; then
+  NIRI_CONF="$HOME/.config/niri/config.kdl"
+  echo "🔎 Consultando niri msg outputs..."
+  niri msg --json outputs | jq -r 'to_entries[] | "\(.key)|\(.value.modes[.value.current_mode].width)x\(.value.modes[.value.current_mode].height)|\(.value.modes[.value.current_mode].refresh_rate)"' | \
+  while IFS='|' read -r name res mhz; do
+    hz=$(awk -v m="$mhz" 'BEGIN{printf "%.3f", m/1000}')
+    newmode="${res}@${hz}"
+    echo "  → ${name}: ${newmode}"
+    awk -v conn="$name" -v newmode="$newmode" '
+      $0 ~ ("output \"" conn "\"") { inblock=1 }
+      inblock && /mode "/ { sub(/mode "[^"]*"/, "mode \"" newmode "\"") }
+      inblock && /^}/ { inblock=0 }
+      { print }
+    ' "$NIRI_CONF" >"${NIRI_CONF}.tmp" && mv "${NIRI_CONF}.tmp" "$NIRI_CONF"
+  done
+  echo "✅ config.kdl actualizado. Recargá con: niri msg action load-config-file (o reiniciá la sesión)"
+fi
+FIXEOF
+  chmod +x /usr/local/bin/fix-monitor-config
+  gum style --foreground 82 "✅ Script /usr/local/bin/fix-monitor-config creado (correr una vez después del primer login gráfico)."
+fi
+
+# -----------------------------
 # 10.1. Aplicar hyprland.lua / niri config.kdl — SOLO en instalación
-#       limpia (sin respaldo). Si se restauró respaldo/hypr o
-#       respaldo/niri, esos dotfiles ya son la config completa y esto
-#       no debe pisarlos.
+#       limpia (sin respaldo). Igual copia TODO el contenido de
+#       respaldo/hypr o respaldo/niri (scripts, assets, etc.) — lo
+#       único que cambia en "limpio" es que el archivo principal
+#       (hyprland.lua / config.kdl) se reemplaza por el que se pasó
+#       con --hyprland-lua/--niri-kdl, en vez de usar el que trae el
+#       propio respaldo.
 # -----------------------------
 if $INSTALL_HYPRLAND && ! $RESTORE_HYPR_CONFIG; then
   HYPR_DEST_DIR="$CONFIG_DIR/hypr"
-  mkdir -p "$HYPR_DEST_DIR"
-  if [[ -n "$HYPRLAND_LUA_SRC" ]]; then
-    section "🌙 Instalación limpia de Hyprland: aplicando hyprland.lua provisto por --hyprland-lua..."
-    cp "$HYPRLAND_LUA_SRC" "$HYPR_DEST_DIR/hyprland.lua"
-
-    if grep -q "AUTO_MONITOR_BLOCK" "$HYPR_DEST_DIR/hyprland.lua"; then
-      HYPR_MONITOR_BLOCK=$(generate_hypr_monitor_block)
-      awk -v block="$HYPR_MONITOR_BLOCK" '
-        /AUTO_MONITOR_BLOCK/ { print block; next }
-        { print }
-      ' "$HYPR_DEST_DIR/hyprland.lua" >"$HYPR_DEST_DIR/hyprland.lua.tmp"
-      mv "$HYPR_DEST_DIR/hyprland.lua.tmp" "$HYPR_DEST_DIR/hyprland.lua"
-      gum style --foreground 82 "✅ Monitor(es) detectado(s) agregado(s) a $HYPR_DEST_DIR/hyprland.lua"
-    fi
-
-    chown -R "$REAL_USER:$REAL_USER" "$HYPR_DEST_DIR"
-    gum style --foreground 82 "✅ $HYPR_DEST_DIR/hyprland.lua actualizado desde $HYPRLAND_LUA_SRC"
+  if [ -d "$BACKUP_DIR/hypr" ]; then
+    rm -rf "$HYPR_DEST_DIR"
+    cp -r "$BACKUP_DIR/hypr" "$HYPR_DEST_DIR"
+    gum style --foreground 82 "✅ hypr → contenido de respaldo/hypr copiado (scripts/assets incluidos)"
   else
-    gum style --foreground 244 "⚠️  Hyprland limpio sin --hyprland-lua — se usa la config de ejemplo que trae el paquete."
+    mkdir -p "$HYPR_DEST_DIR"
   fi
+
+  if [[ -n "$HYPRLAND_LUA_SRC" ]]; then
+    section "🌙 Hyprland limpio: reemplazando hyprland.lua por el provisto en --hyprland-lua..."
+    cp "$HYPRLAND_LUA_SRC" "$HYPR_DEST_DIR/hyprland.lua"
+    gum style --foreground 82 "✅ $HYPR_DEST_DIR/hyprland.lua actualizado desde $HYPRLAND_LUA_SRC"
+  elif [ ! -f "$HYPR_DEST_DIR/hyprland.lua" ]; then
+    gum style --foreground 244 "⚠️  Hyprland limpio sin --hyprland-lua ni hyprland.lua en respaldo/hypr — se usa la config de ejemplo que trae el paquete."
+  fi
+
+  chown -R "$REAL_USER:$REAL_USER" "$HYPR_DEST_DIR"
 elif [[ -n "$HYPRLAND_LUA_SRC" ]]; then
   gum style --foreground 244 "⚠️  Se pasó --hyprland-lua pero se restauró respaldo/hypr — se omite para no pisarlo."
 fi
 
 if $INSTALL_NIRI && ! $RESTORE_NIRI_CONFIG; then
-  if [[ -n "$NIRI_KDL_SRC" ]]; then
-    section "🌙 Instalación limpia de Niri: aplicando config.kdl provisto por --niri-kdl..."
-    NIRI_DEST_DIR="$CONFIG_DIR/niri"
-    mkdir -p "$NIRI_DEST_DIR"
-    cp "$NIRI_KDL_SRC" "$NIRI_DEST_DIR/config.kdl"
-
-    if grep -q "AUTO_MONITOR_BLOCK" "$NIRI_DEST_DIR/config.kdl"; then
-      NIRI_MONITOR_BLOCK=$(generate_niri_output_block)
-      # Reemplaza la línea del marcador por el bloque generado.
-      # Se usa un archivo temporal porque el bloque puede tener varias
-      # líneas (varios monitores), lo cual sed -i no maneja bien inline.
-      awk -v block="$NIRI_MONITOR_BLOCK" '
-        /AUTO_MONITOR_BLOCK/ { print block; next }
-        { print }
-      ' "$NIRI_DEST_DIR/config.kdl" >"$NIRI_DEST_DIR/config.kdl.tmp"
-      mv "$NIRI_DEST_DIR/config.kdl.tmp" "$NIRI_DEST_DIR/config.kdl"
-      gum style --foreground 82 "✅ Monitor(es) detectado(s) agregado(s) a $NIRI_DEST_DIR/config.kdl"
-    fi
-
-    chown -R "$REAL_USER:$REAL_USER" "$NIRI_DEST_DIR"
-    gum style --foreground 82 "✅ $NIRI_DEST_DIR/config.kdl actualizado desde $NIRI_KDL_SRC"
+  NIRI_DEST_DIR="$CONFIG_DIR/niri"
+  if [ -d "$BACKUP_DIR/niri" ]; then
+    rm -rf "$NIRI_DEST_DIR"
+    cp -r "$BACKUP_DIR/niri" "$NIRI_DEST_DIR"
+    gum style --foreground 82 "✅ niri → contenido de respaldo/niri copiado (scripts/assets incluidos)"
   else
-    gum style --foreground 244 "⚠️  Niri limpio sin --niri-kdl — se usa la config por defecto que trae el paquete."
+    mkdir -p "$NIRI_DEST_DIR"
   fi
+
+  if [[ -n "$NIRI_KDL_SRC" ]]; then
+    section "🌙 Niri limpio: reemplazando config.kdl por el provisto en --niri-kdl..."
+    cp "$NIRI_KDL_SRC" "$NIRI_DEST_DIR/config.kdl"
+    gum style --foreground 82 "✅ $NIRI_DEST_DIR/config.kdl actualizado desde $NIRI_KDL_SRC"
+  elif [ ! -f "$NIRI_DEST_DIR/config.kdl" ]; then
+    gum style --foreground 244 "⚠️  Niri limpio sin --niri-kdl ni config.kdl en respaldo/niri — se usa la config por defecto que trae el paquete."
+  fi
+
+  chown -R "$REAL_USER:$REAL_USER" "$NIRI_DEST_DIR"
 elif [[ -n "$NIRI_KDL_SRC" ]]; then
   gum style --foreground 244 "⚠️  Se pasó --niri-kdl pero se restauró respaldo/niri — se omite para no pisarlo."
+fi
+
+# -----------------------------
+# 10.2. Aplicar monitor detectado — SIEMPRE AL FINAL
+# -----------------------------
+# Se hace acá, después de que hypr/niri/apps/scripts ya terminaron de
+# copiarse (limpio o restaurado), para que ninguna copia posterior
+# pueda pisar el bloque de monitor. Busca el marcador AUTO_MONITOR_BLOCK
+# en el archivo final (venga de --hyprland-lua/--niri-kdl o del
+# respaldo restaurado) y lo reemplaza con lo detectado/elegido.
+section "🖥️  Aplicando configuración de monitor final..."
+
+HYPR_FINAL_CONF="$CONFIG_DIR/hypr/hyprland.lua"
+if $INSTALL_HYPRLAND && [ -f "$HYPR_FINAL_CONF" ] && grep -q "AUTO_MONITOR_BLOCK" "$HYPR_FINAL_CONF"; then
+  HYPR_MONITOR_BLOCK=$(generate_hypr_monitor_block)
+  awk -v block="$HYPR_MONITOR_BLOCK" '
+    /AUTO_MONITOR_BLOCK/ { print block; next }
+    { print }
+  ' "$HYPR_FINAL_CONF" >"${HYPR_FINAL_CONF}.tmp"
+  mv "${HYPR_FINAL_CONF}.tmp" "$HYPR_FINAL_CONF"
+  chown "$REAL_USER:$REAL_USER" "$HYPR_FINAL_CONF"
+  gum style --foreground 82 "✅ Monitor(es) aplicado(s) a $HYPR_FINAL_CONF"
+fi
+
+NIRI_FINAL_CONF="$CONFIG_DIR/niri/config.kdl"
+if $INSTALL_NIRI && [ -f "$NIRI_FINAL_CONF" ] && grep -q "AUTO_MONITOR_BLOCK" "$NIRI_FINAL_CONF"; then
+  NIRI_MONITOR_BLOCK=$(generate_niri_output_block)
+  awk -v block="$NIRI_MONITOR_BLOCK" '
+    /AUTO_MONITOR_BLOCK/ { print block; next }
+    { print }
+  ' "$NIRI_FINAL_CONF" >"${NIRI_FINAL_CONF}.tmp"
+  mv "${NIRI_FINAL_CONF}.tmp" "$NIRI_FINAL_CONF"
+  chown "$REAL_USER:$REAL_USER" "$NIRI_FINAL_CONF"
+  gum style --foreground 82 "✅ Monitor(es) aplicado(s) a $NIRI_FINAL_CONF"
+fi
+
+# -----------------------------
+# 10.3. Aplicar el emulador de terminal elegido — también al final
+# -----------------------------
+# Mismo motivo que el monitor: se hace después de que todo terminó de
+# copiarse, para que no lo pise una restauración posterior. Reemplaza
+# el marcador AUTO_TERMINAL_EMULATOR por el terminal elegido en la
+# sección 0.8 ($SEL_TERMINAL_EMU).
+# Ojo: los flags "--class" y "-e" que usan estos binds son de kitty;
+# alacritty los soporta igual, pero foot usa "-a" en vez de "--class" y
+# wezterm tiene su propia sintaxis (wezterm start --class ... -- cmd).
+# Si elegiste foot/wezterm, revisá esos binds a mano después.
+if [ -f "$HYPR_FINAL_CONF" ] && grep -q "AUTO_TERMINAL_EMULATOR" "$HYPR_FINAL_CONF"; then
+  sed -i "s/AUTO_TERMINAL_EMULATOR/${SEL_TERMINAL_EMU}/g" "$HYPR_FINAL_CONF"
+  chown "$REAL_USER:$REAL_USER" "$HYPR_FINAL_CONF"
+  gum style --foreground 82 "✅ Terminal ($SEL_TERMINAL_EMU) aplicado a $HYPR_FINAL_CONF"
+fi
+if [ -f "$NIRI_FINAL_CONF" ] && grep -q "AUTO_TERMINAL_EMULATOR" "$NIRI_FINAL_CONF"; then
+  sed -i "s/AUTO_TERMINAL_EMULATOR/${SEL_TERMINAL_EMU}/g" "$NIRI_FINAL_CONF"
+  chown "$REAL_USER:$REAL_USER" "$NIRI_FINAL_CONF"
+  gum style --foreground 82 "✅ Terminal ($SEL_TERMINAL_EMU) aplicado a $NIRI_FINAL_CONF"
 fi
 
 # -----------------------------
