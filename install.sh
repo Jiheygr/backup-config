@@ -1183,10 +1183,16 @@ EOF
   done
 
   # dconf, para las apps GTK que leen gsettings en vez de settings.ini.
+  # Ojo: en este punto de la instalación no hay sesión D-Bus activa
+  # (recién se está bootstrapeando el sistema), así que "dconf write"
+  # va a fallar con un error de dbus-launch de forma esperada. Con
+  # "|| true" evitamos que ese fallo aborte TODO el script (el trap de
+  # errores lo tomaría como fatal si no). settings.ini ya cubre la
+  # mayoría de las apps GTK igual; esto es solo un extra best-effort.
   if command -v dconf &>/dev/null; then
-    sudo -u "$REAL_USER" dconf write /org/gnome/desktop/interface/gtk-theme "'adw-gtk3-dark'"
-    sudo -u "$REAL_USER" dconf write /org/gnome/desktop/interface/icon-theme "'Papirus-Dark'"
-    sudo -u "$REAL_USER" dconf write /org/gnome/desktop/interface/color-scheme "'prefer-dark'"
+    sudo -u "$REAL_USER" dbus-run-session -- dconf write /org/gnome/desktop/interface/gtk-theme "'adw-gtk3-dark'" 2>>"$LOG_FILE" || true
+    sudo -u "$REAL_USER" dbus-run-session -- dconf write /org/gnome/desktop/interface/icon-theme "'Papirus-Dark'" 2>>"$LOG_FILE" || true
+    sudo -u "$REAL_USER" dbus-run-session -- dconf write /org/gnome/desktop/interface/color-scheme "'prefer-dark'" 2>>"$LOG_FILE" || true
   fi
 
   # Si Noctalia está instalado, este es el mismo apply.sh que dispara
