@@ -45,7 +45,7 @@ PICTURES_DIR=$(sudo -u "$REAL_USER" xdg-user-dir PICTURES 2>/dev/null)
 [[ -z "$PICTURES_DIR" ]] && PICTURES_DIR="$USER_HOME/Pictures"
 
 # Carpetas de origen para el selector fzf
-WALLPAPER_DIR="$PICTURES_DIR/Wallpapers/dynamic-wallpaper"
+WALLPAPER_DIR="$PICTURES_DIR/Wallpapers"
 AVATAR_DIR="$PICTURES_DIR/avatar"
 
 BACK_LABEL="⬅️  Volver al menú principal"
