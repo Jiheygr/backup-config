@@ -1070,6 +1070,7 @@ PACMAN_PKGS=(
   wget
   xdg-user-dirs
   jq
+  pacman-contrib
 )
 
 if $INSTALL_HYPRLAND; then
@@ -1707,6 +1708,15 @@ EOF
       shopt -u nullglob
       chown -R "$REAL_USER:$REAL_USER" "$USER_SYSTEMD_DIR"
       gum style --foreground 82 "  ✅ systemd-user → $USER_SYSTEMD_DIR/"
+
+      # "systemctl --user" necesita una instancia de systemd de usuario
+      # corriendo, que normalmente arranca recién con el primer login
+      # gráfico — que en este punto de la instalación todavía no pasó.
+      # loginctl enable-linger la arranca sin necesitar login, y de paso
+      # hace que los timers (como el de chequear actualizaciones) sigan
+      # corriendo aunque el usuario no tenga sesión iniciada.
+      loginctl enable-linger "$REAL_USER" 2>>"$LOG_FILE" || true
+      sleep 2
 
       sudo -u "$REAL_USER" env XDG_RUNTIME_DIR="/run/user/$(id -u "$REAL_USER")" \
         systemctl --user daemon-reload || true
