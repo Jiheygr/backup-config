@@ -2323,8 +2323,8 @@ binds {
     Mod+Shift+Slash { show-hotkey-overlay; }
 
     // Suggested binds for running programs: terminal, app launcher, screen locker.
-    Mod+return hotkey-overlay-title="Open a Terminal: AUTO_TERMINAL_EMULATOR" { spawn "AUTO_TERMINAL_EMULATOR"; }
-    Mod+space hotkey-overlay-title="Run an Application: nwg-drawer" { spawn "nwg-drawer"; }
+    Mod+return hotkey-overlay-title="Open a Terminal: kitty" { spawn "kitty"; }
+    Mod+space hotkey-overlay-title="Run an Application: nwg-drawer" { spawn "noctalia" "msg" "panel-toggle" "launcher"; }
     Super+Alt+L hotkey-overlay-title="Lock the Screen: swaylock" { spawn "swaylock"; }
 
     // Use spawn-sh to run a shell command. Do this if you need pipes, multiple commands, etc.
@@ -2586,29 +2586,33 @@ binds {
     // moving the mouse or pressing any other key.
     Mod+Shift+P { power-off-monitors; }
     Mod+B { spawn "brave-origin"; }
-    Mod+F1 { spawn-sh "$HOME/.config/niri/scripts/power-toggle.sh"; }
+    Mod+F1 { spawn-sh "/home/jihey/.config/niri/scripts/power-toggle.sh"; }
     Mod+Delete { spawn "noctalia" "msg" "panel-toggle" "session"; }
     Mod+D { spawn "discord"; }
     Mod+A { spawn "pamac-manager"; }
     Mod+N { spawn "nirimod"; }
     Mod+C { spawn "nvim-qt"; }
     Mod+S { spawn "noctalia" "msg" "panel-toggle" "control-center"; }
-    Mod+Shift+S { spawn-sh "AUTO_TERMINAL_EMULATOR -e gestionar-sddm.sh"; }
+    Mod+Shift+S { spawn-sh "kitty -e gestionar-sddm.sh"; }
     Mod+G { spawn "steam"; }
-    Mod+Ctrl+E { spawn-sh "AUTO_TERMINAL_EMULATOR --class editconfig -e editconfig"; }
-    Mod+Ctrl+C { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=fmpnliohjhemenmnlpbfagaolkdacoja"; }
+    Mod+Ctrl+E { spawn-sh "kitty --class editconfig -e editconfig"; }
+    Mod+Ctrl+C { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=jgjhlcdkbaleficjbeoacankjdhpeoho"; }
     Mod+Shift+G { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=mjoklplbddabcmpepnokjaffbmgbkkgg"; }
     Mod+Shift+W { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=hnpfjngllnobngcgfapefoaidbinmjnm"; }
     Mod+Y { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=agimnkijcaahngcdmfeangaknmldooml"; }
     Mod+Shift+Y { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=cinhimbnkkaeohfgghhklpknlkffjgod"; }
-    Mod+U { spawn-sh "AUTO_TERMINAL_EMULATOR -e update-system"; }
+    Mod+U { spawn-sh "kitty -e update-system"; }
 }
 
 environment {
     QT_QPA_PLATFORMTHEME "qt6ct"
     QT_QPA_PLATFORM "wayland"
 }
-// AUTO_MONITOR_BLOCK: el instalador reemplaza esta línea con el/los
+output "eDP-1" {
+    scale 1
+
+    mode "1920x1080@360.041"
+}
 // bloque(s) "output" detectados vía EDID en la máquina donde se instala.
 // Si el instalador no detecta nada, niri usa auto-detect (comportamiento
 // por defecto, sin este bloque).
