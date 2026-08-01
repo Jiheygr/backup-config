@@ -67,9 +67,13 @@ elif [[ -f /boot/amd-ucode.img ]]; then
 fi
 
 # ── Entrada de Windows (chainload) ──────────────────────────────────
-# UUID de la partición ESP del disco de Windows (nvme0n1p1). Configurable
-# vía variable de entorno para no hardcodear el UUID de una máquina
-# específica; si no se define, simplemente se omite esta entrada.
+# UUID de la partición ESP del disco de Windows (nvme0n1p1). Se puede
+# pasar por variable de entorno (WINDOWS_ESP_UUID=... sudo -E ...), o
+# dejarlo en /etc/arch-snapper-boot-entries.conf para que también lo
+# tome el hook automático de pacman (que no pasa variables de entorno).
+# Si no está definido en ningún lado, se omite la entrada sin romper
+# nada.
+[[ -f /etc/arch-snapper-boot-entries.conf ]] && source /etc/arch-snapper-boot-entries.conf
 WINDOWS_ESP_UUID="${WINDOWS_ESP_UUID:-}"
 
 _ensure_windows_entry() {
@@ -98,17 +102,59 @@ _ensure_windows_entry() {
         rmdir "$mnt" 2>/dev/null || true
     fi
 
-    if [[ ! -f "${ENTRIES_DIR}/windows.conf" ]]; then
-        {
-            echo "title    Windows"
-            echo "sort-key arch-windows"
-            echo "efi      /EFI/Microsoft/Boot/bootmgfw.efi"
-        } > "${ENTRIES_DIR}/windows.conf"
-        echo "✅ Entrada de Windows creada."
-    fi
+    # Se reescribe siempre (no solo si falta) para que cambios de
+    # sort-key/orden se apliquen aunque el archivo ya exista.
+    {
+        echo "title    Windows"
+        echo "sort-key m-windows"
+        echo "efi      /EFI/Microsoft/Boot/bootmgfw.efi"
+    } > "${ENTRIES_DIR}/windows.conf"
 }
 
 _ensure_windows_entry
+
+# ── Entradas explícitas para los kernels actuales (boot normal, no
+#    snapshots) ──────────────────────────────────────────────────────
+# Los .efi de UKI que autodetecta systemd-boot en /boot/EFI/Linux NO
+# tienen sort-key propio. Según la Boot Loader Spec, las entradas CON
+# sort-key siempre se ordenan antes que las que no lo tienen — así que
+# sin esto, Windows/snapshots (que sí tienen sort-key) terminarían
+# apareciendo ANTES que tus kernels, al revés de lo que querés. Estas
+# entradas "duplican" el arranque normal pero con sort-key "a-" para
+# garantizar que salgan primero.
+rm -f "${ENTRIES_DIR}"/mainkernel-*.conf
+
+for KERNEL in "${KERNELS[@]}"; do
+    SUFFIX="${KERNEL#vmlinuz-}"
+    INITRAMFS="initramfs-${SUFFIX}.img"
+    UKI_PATH="/boot/EFI/Linux-uki/arch-${SUFFIX}.efi"
+    UKI_EFI_LINE="/EFI/Linux-uki/arch-${SUFFIX}.efi"
+    if [[ ! -f "$UKI_PATH" ]]; then
+        # Compatibilidad: todavía no migraste este kernel a la carpeta
+        # nueva (ver instrucciones), usa la ubicación vieja.
+        UKI_PATH="/boot/EFI/Linux/arch-${SUFFIX}.efi"
+        UKI_EFI_LINE="/EFI/Linux/arch-${SUFFIX}.efi"
+    fi
+
+    if [[ -f "$UKI_PATH" ]]; then
+        {
+            echo "title    Linux (${SUFFIX})"
+            echo "sort-key a-linux-${SUFFIX}"
+            echo "efi      ${UKI_EFI_LINE}"
+        } > "${ENTRIES_DIR}/mainkernel-${SUFFIX}.conf"
+    elif [[ -f "/boot/${INITRAMFS}" ]]; then
+        {
+            echo "title    Linux (${SUFFIX})"
+            echo "sort-key a-linux-${SUFFIX}"
+            echo "linux    /${KERNEL}"
+            [[ -n "$MICROCODE" ]] && echo "initrd   /${MICROCODE}"
+            echo "initrd   /${INITRAMFS}"
+            echo "options  root=UUID=${UUID} ${OPTIONS}"
+        } > "${ENTRIES_DIR}/mainkernel-${SUFFIX}.conf"
+    else
+        echo "⚠️  Salteando entrada principal de ${KERNEL}: no se encontró ni UKI ni initramfs" >&2
+    fi
+done
 
 # Limpiar entradas antiguas
 rm -f "${ENTRIES_DIR}"/snapshot-*.conf
@@ -138,10 +184,17 @@ for NUM in "${SNAPSHOTS[@]}"; do
     for KERNEL in "${KERNELS[@]}"; do
         SUFFIX="${KERNEL#vmlinuz-}"
         INITRAMFS="initramfs-${SUFFIX}.img"
-        UKI_PATH="/boot/EFI/Linux/arch-${SUFFIX}.efi"
+        UKI_PATH="/boot/EFI/Linux-uki/arch-${SUFFIX}.efi"
+        UKI_EFI_LINE="/EFI/Linux-uki/arch-${SUFFIX}.efi"
+        if [[ ! -f "$UKI_PATH" ]]; then
+            # Compatibilidad: todavía no migraste este kernel a la carpeta
+            # nueva (ver instrucciones), usa la ubicación vieja.
+            UKI_PATH="/boot/EFI/Linux/arch-${SUFFIX}.efi"
+            UKI_EFI_LINE="/EFI/Linux/arch-${SUFFIX}.efi"
+        fi
 
         if [[ -n "$SNAP_WHEN" ]]; then
-            TITLE="Snapshot #${NUM} (${SUFFIX}) — ${SNAP_WHEN}"
+            TITLE="Snapshot #${NUM} (${SUFFIX}) - ${SNAP_WHEN}"
         else
             TITLE="Snapshot #${NUM} (${SUFFIX})"
         fi
@@ -155,9 +208,9 @@ for NUM in "${SNAPSHOTS[@]}"; do
             # aplica al bootear).
             {
                 echo "title   ${TITLE}"
-                echo "efi     /EFI/Linux/arch-${SUFFIX}.efi"
+                echo "efi     ${UKI_EFI_LINE}"
                 echo "options rootflags=subvol=${SNAP_PATH}"
-                echo "sort-key b-snapshot-${NUM}-${SUFFIX}"
+                echo "sort-key z-snapshot-${NUM}-${SUFFIX}"
             } > "${ENTRIES_DIR}/snapshot-${NUM}-${SUFFIX}.conf"
         elif [[ -f "/boot/${INITRAMFS}" ]]; then
             # Sistema clásico (vmlinuz + initramfs sueltos, sin UKI).
@@ -167,7 +220,7 @@ for NUM in "${SNAPSHOTS[@]}"; do
                 [[ -n "$MICROCODE" ]] && echo "initrd  /${MICROCODE}"
                 echo "initrd  /${INITRAMFS}"
                 echo "options root=UUID=${UUID} rootflags=subvol=${SNAP_PATH} ${OPTIONS}"
-                echo "sort-key b-snapshot-${NUM}-${SUFFIX}"
+                echo "sort-key z-snapshot-${NUM}-${SUFFIX}"
             } > "${ENTRIES_DIR}/snapshot-${NUM}-${SUFFIX}.conf"
         else
             echo "⚠️  Salteando ${KERNEL}: no se encontró ni UKI (${UKI_PATH}) ni initramfs (/boot/${INITRAMFS})" >&2
