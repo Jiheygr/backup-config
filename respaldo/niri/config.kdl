@@ -21,15 +21,9 @@ input {
     // Omitting settings disables them, or leaves them at their default values.
     // All commented-out settings here are examples, not defaults.
     touchpad {
-        dwt
+        disabled-on-external-mouse
 
-        tap
-
-        // dwt
-        // dwtp
-        // drag false
-        // drag-lock
-        natural-scroll
+        drag false
         // accel-speed 0.2
         // accel-profile "flat"
         // scroll-method "two-finger"
@@ -314,6 +308,10 @@ window-rule {
 }
 
 binds {
+    
+    
+    
+    
     
     
     
@@ -2419,10 +2417,8 @@ binds {
 
     Mod+Page_Down      { focus-workspace-down; }
     Mod+Page_Up        { focus-workspace-up; }
-    Mod+I              { focus-workspace-up; }
     Mod+Ctrl+Page_Down { move-column-to-workspace-down; }
     Mod+Ctrl+Page_Up   { move-column-to-workspace-up; }
-    Mod+Ctrl+I         { move-column-to-workspace-up; }
 
     // Alternatively, there are commands to move just a single window:
     // Mod+Ctrl+Page_Down { move-window-to-workspace-down; }
@@ -2430,7 +2426,6 @@ binds {
 
     Mod+Shift+Page_Down { move-workspace-down; }
     Mod+Shift+Page_Up   { move-workspace-up; }
-    Mod+Shift+I         { move-workspace-up; }
 
     // You can bind mouse wheel scroll ticks using the following syntax.
     // These binds will change direction based on the natural-scroll setting.
@@ -2585,7 +2580,7 @@ binds {
     // Powers off the monitors. To turn them back on, do any input like
     // moving the mouse or pressing any other key.
     Mod+Shift+P { power-off-monitors; }
-    Mod+B { spawn "brave-origin"; }
+    Mod+B { spawn "helium-browser"; }
     Mod+F1 { spawn-sh "/home/jihey/.config/niri/scripts/power-toggle.sh"; }
     Mod+Delete { spawn "noctalia" "msg" "panel-toggle" "session"; }
     Mod+D { spawn "discord"; }
@@ -2596,12 +2591,13 @@ binds {
     Mod+Shift+S { spawn-sh "kitty -e gestionar-sddm.sh"; }
     Mod+G { spawn "steam"; }
     Mod+Ctrl+E { spawn-sh "kitty --class editconfig -e editconfig"; }
-    Mod+Ctrl+C { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=jgjhlcdkbaleficjbeoacankjdhpeoho"; }
     Mod+Shift+G { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=mjoklplbddabcmpepnokjaffbmgbkkgg"; }
     Mod+Shift+W { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=hnpfjngllnobngcgfapefoaidbinmjnm"; }
-    Mod+Y { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=agimnkijcaahngcdmfeangaknmldooml"; }
-    Mod+Shift+Y { spawn "/opt/brave-origin-bin/brave-origin" "--profile-directory=Default" "--app-id=cinhimbnkkaeohfgghhklpknlkffjgod"; }
+    Mod+Y { spawn "/opt/helium-browser-bin/helium-wrapper" "--profile-directory=Default" "--app-id=agimnkijcaahngcdmfeangaknmldooml"; }
+    Mod+Shift+Y { spawn "/opt/helium-browser-bin/helium-wrapper" "--profile-directory=Default" "--app-id=cinhimbnkkaeohfgghhklpknlkffjgod"; }
     Mod+U { spawn-sh "kitty -e update-system"; }
+    Mod+I { spawn "/opt/helium-browser-bin/helium-wrapper" "--profile-directory=Default" "--app-id=jgjhlcdkbaleficjbeoacankjdhpeoho"; }
+    Mod+Ctrl+I { spawn "/opt/helium-browser-bin/helium-wrapper" "--profile-directory=Default" "--app-id=cadlkienfkclaiaibeoongdcgmdikeeg"; }
 }
 
 environment {
