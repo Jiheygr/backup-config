@@ -735,7 +735,7 @@ GAMING_ALL=(wine-staging winetricks protontricks protonplus mangojuice steam gam
 # script más "universal" (editores, etc.). En OWNER_MODE se omiten los
 # extras — solo se instala lo que ya tenías. En modo invitado se
 # ofrecen ambos.
-APPS_ALL_BASE=(telegram-desktop discord brave-origin-bin proton-vpn-gtk-app localsend
+APPS_ALL_BASE=(telegram-desktop discord helium-browser-bin proton-vpn-gtk-app localsend
   mission-center fastfetch gnome-firmware gearlever chafa xarchiver)
 APPS_ALL_EXTRA=(visual-studio-code-bin vscodium-bin sublime-text-4 geany kate)
 
