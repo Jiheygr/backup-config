@@ -1070,6 +1070,7 @@ PACMAN_PKGS=(
   wget
   xdg-user-dirs
   jq
+  gvfs
   pacman-contrib
 )
 
